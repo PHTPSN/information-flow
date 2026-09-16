@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist-demo",
+    "rootDir": "src"
+  },
+  "include": [
+    "src/demo-server.ts",
+    "src/platform-demo.ts",
+    "src/four-actor-scenario.ts",
+    "src/behavior-derived-system.ts",
+    "src/information-flow.ts"
+  ],
+  "exclude": ["node_modules", "contracts/managed", "test"]
+}

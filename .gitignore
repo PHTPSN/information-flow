@@ -1,0 +1,6 @@
+contracts/managed/
+node_modules/
+.env
+logs/
+midnight-level-db/
+dist-demo/

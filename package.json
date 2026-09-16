@@ -1,0 +1,45 @@
+{
+  "name": "information-flow",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Privacy-preserving InformationFlow MVP on Midnight",
+  "scripts": {
+    "compile": "compact compile contracts/information-flow.compact contracts/managed/information-flow",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-tsx.cjs --test --test-concurrency=1 test/information-flow.test.ts test/register-information-flow.test.ts test/four-actor-behavior.test.ts test/frontend-journey.test.ts test/midnight-commitment-anchor.test.ts test/midnight-information-flow-contract.test.ts test/midnight-providers.test.ts test/midnight-wallet.test.ts test/midnight-composition.test.ts test/midnight-contract-connection.test.ts",
+    "demo:build": "tsc -p tsconfig.demo.json",
+    "demo": "npm run demo:build && node dist-demo/demo-server.js",
+    "test:live": "node scripts/run-tsx.cjs test/live-midnight-commitment.ts",
+    "test:live:scenario": "node scripts/run-tsx.cjs test/live-four-actor-scenario.ts",
+    "check": "npm run compile && npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/ws": "8.18.1",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.16.0",
+    "@midnight-ntwrk/midnight-js-contracts": "4.1.1",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-network-id": "4.1.1",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "4.1.1",
+    "@midnight-ntwrk/midnight-js-protocol": "4.1.1",
+    "@midnight-ntwrk/midnight-js-types": "4.1.1",
+    "@midnight-ntwrk/testkit-js": "4.1.1",
+    "@midnight-ntwrk/wallet-sdk": "1.2.0",
+    "pino": "10.3.1",
+    "ws": "8.21.3"
+  },
+  "overrides": {
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0",
+    "@midnight-ntwrk/wallet-sdk": "1.2.0"
+  }
+}

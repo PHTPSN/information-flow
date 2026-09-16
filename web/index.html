@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="A private account for verified reviews, purchases, support, and case follow-up."
+    />
+    <title>Information Flow</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main id="auth-view" class="auth-layout">
+      <section class="auth-story" aria-labelledby="welcome-title">
+        <a class="brand brand-light" href="/" aria-label="Information Flow home">
+          <span class="brand-mark" aria-hidden="true">IF</span>
+          <span>Information Flow</span>
+        </a>
+        <div class="story-copy">
+          <p class="overline">Your purchases. Your choice.</p>
+          <h1 id="welcome-title">One account for reviews and support.</h1>
+          <p>
+            Write a verified review, ask the store for help, or follow a case
+            without publishing your order details.
+          </p>
+        </div>
+        <div class="story-proof">
+          <span class="status-dot" aria-hidden="true"></span>
+          Local demo is ready
+        </div>
+      </section>
+
+      <section class="auth-panel" aria-label="Account access">
+        <div class="auth-card">
+          <div class="auth-tabs" role="tablist" aria-label="Account options">
+            <button
+              id="show-login"
+              class="auth-tab is-active"
+              type="button"
+              role="tab"
+              aria-selected="true"
+              aria-controls="login-form"
+            >
+              Log in
+            </button>
+            <button
+              id="show-register"
+              class="auth-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="register-form"
+            >
+              Create account
+            </button>
+          </div>
+
+          <form id="login-form" class="auth-form" aria-labelledby="login-title">
+            <div>
+              <p class="overline">Welcome back</p>
+              <h2 id="login-title">Log in to your account</h2>
+            </div>
+            <label>
+              <span>Username</span>
+              <input
+                name="username"
+                autocomplete="username"
+                required
+                placeholder="your username"
+              />
+            </label>
+            <label>
+              <span>Password</span>
+              <input
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                value="123456"
+                required
+              />
+            </label>
+            <button class="button button-primary" type="submit">Log in</button>
+            <p class="demo-hint">Demo password: <code>123456</code></p>
+          </form>
+
+          <form
+            id="register-form"
+            class="auth-form"
+            aria-labelledby="register-title"
+            hidden
+          >
+            <div>
+              <p class="overline">New here?</p>
+              <h2 id="register-title">Create your account</h2>
+            </div>
+            <label>
+              <span>Name</span>
+              <input
+                name="displayName"
+                autocomplete="name"
+                required
+                placeholder="e.g. Alice Chen"
+              />
+            </label>
+            <label>
+              <span>Username</span>
+              <input
+                name="username"
+                autocomplete="username"
+                required
+                minlength="3"
+                maxlength="24"
+                placeholder="choose a username"
+              />
+            </label>
+            <label>
+              <span>Password</span>
+              <input
+                name="password"
+                type="password"
+                autocomplete="new-password"
+                value="123456"
+                required
+              />
+            </label>
+            <button class="button button-primary" type="submit">Create account</button>
+            <p id="register-success" class="form-success" hidden></p>
+          </form>
+
+          <div class="manager-access">
+            <span>Setting up the workspace?</span>
+            <button id="manager-login" class="text-button" type="button">
+              Log in as manager
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <div id="app-view" class="app-shell" hidden>
+      <header class="app-header">
+        <a class="brand" href="#home" aria-label="Information Flow home">
+          <span class="brand-mark" aria-hidden="true">IF</span>
+          <span>Information Flow</span>
+        </a>
+        <div class="account-menu">
+          <div>
+            <strong id="account-name"></strong>
+            <span id="account-username"></span>
+          </div>
+          <button id="logout" class="button button-quiet" type="button">Log out</button>
+        </div>
+      </header>
+
+      <main class="app-main" id="home">
+        <section class="welcome-card">
+          <div>
+            <p class="overline" id="welcome-overline">Your account</p>
+            <h1 id="dashboard-title"></h1>
+            <p id="dashboard-subtitle"></p>
+          </div>
+          <div class="welcome-stat">
+            <span>Verified reviews</span>
+            <strong id="review-count">0</strong>
+          </div>
+        </section>
+
+        <section id="manager-section" class="workspace-section" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="overline">Workspace setup</p>
+              <h2>Connect Acme Audio</h2>
+            </div>
+            <span id="manager-status" class="badge"></span>
+          </div>
+          <form id="configure-form" class="inline-form">
+            <label>
+              <span>Acme operations account</span>
+              <select name="merchantUsername" required></select>
+            </label>
+            <label>
+              <span>Independent case reviewer</span>
+              <select name="regulatorUsername" required></select>
+            </label>
+            <button class="button button-primary" type="submit">Save setup</button>
+          </form>
+          <div id="registered-users" class="user-list"></div>
+        </section>
+
+        <section id="purchases-section" class="workspace-section" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="overline">Private to you</p>
+              <h2>My purchases</h2>
+            </div>
+          </div>
+          <div id="purchases" class="card-grid"></div>
+        </section>
+
+        <section id="sales-section" class="workspace-section" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="overline">Acme Audio</p>
+              <h2>Record a customer purchase</h2>
+            </div>
+          </div>
+          <form id="purchase-form" class="inline-form">
+            <label>
+              <span>Customer</span>
+              <select name="buyerUsername" required></select>
+            </label>
+            <label>
+              <span>Order number</span>
+              <input name="orderId" required placeholder="e.g. ORD-88421" />
+            </label>
+            <button class="button button-primary" type="submit">Add purchase</button>
+          </form>
+        </section>
+
+        <section id="support-section" class="workspace-section" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="overline">Acme Audio</p>
+              <h2>Support inbox</h2>
+            </div>
+          </div>
+          <div id="support-inbox" class="card-grid"></div>
+        </section>
+
+        <section id="cases-section" class="workspace-section" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="overline">Assigned to you</p>
+              <h2>Case review</h2>
+            </div>
+          </div>
+          <div id="assigned-cases" class="card-grid"></div>
+        </section>
+
+        <section id="reviews-section" class="workspace-section">
+          <div class="section-heading">
+            <div>
+              <p class="overline">H1 Headphones</p>
+              <h2>Customer reviews</h2>
+            </div>
+            <span class="section-note">Order details are never shown here.</span>
+          </div>
+          <div id="reviews" class="review-list"></div>
+        </section>
+
+        <section id="activity-section" class="workspace-section" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="overline">Recent</p>
+              <h2>Account activity</h2>
+            </div>
+          </div>
+          <ol id="activity" class="activity-list"></ol>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span>Information Flow</span>
+        <span>Local demo · private account data stays off the public review page</span>
+      </footer>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

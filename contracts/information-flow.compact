@@ -1,0 +1,19 @@
+pragma language_version >= 0.23;
+
+import CompactStandardLibrary;
+
+// Public, tamper-evident anchors for private InformationFlow actions.
+// The raw actors, context, records, claims, recipient views, and nonces remain
+// off-chain. The map key is only an insertion sequence; it is not an actor ID.
+export ledger flowCommitment: Opaque<"string">;
+export ledger flowCommitments: Map<Uint<64>, Opaque<"string">>;
+export ledger flowCount: Counter;
+
+// Publish only the commitment, never the underlying action data. Retaining the
+// latest value preserves the original single-anchor reader while the map gives
+// each later action its own immutable sequence position.
+export circuit registerFlow(commitment: Opaque<"string">): [] {
+    flowCommitment = disclose(commitment);
+    flowCommitments.insert(flowCount, disclose(commitment));
+    flowCount.increment(1);
+}
