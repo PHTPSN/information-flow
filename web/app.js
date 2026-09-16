@@ -424,9 +424,9 @@ elements.showRegister.addEventListener("click", () => showAuth("register"));
 
 elements.registerForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const values = formValues(elements.registerForm);
   setBusy(true);
   try {
-    const values = formValues(elements.registerForm);
     await request("/api/register", { method: "POST", body: values });
     elements.loginForm.elements.username.value = values.username;
     elements.registerSuccess.textContent = "Account created. You can log in now.";
@@ -442,12 +442,13 @@ elements.registerForm.addEventListener("submit", async (event) => {
 
 elements.loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
+  const values = formValues(elements.loginForm);
   setBusy(true);
   try {
     renderDashboard(
       await request("/api/login", {
         method: "POST",
-        body: formValues(elements.loginForm),
+        body: values,
       }),
     );
   } catch (error) {

@@ -88,6 +88,7 @@ describe("registered-user browser journey", () => {
   it("opens as a normal login and registration site", async () => {
     const response = await fetch(origin);
     const html = await response.text();
+    const appScript = await (await fetch(`${origin}/app.js`)).text();
 
     assert.equal(response.status, 200);
     assert.match(html, /Log in to your account/);
@@ -95,10 +96,36 @@ describe("registered-user browser journey", () => {
     assert.match(html, /Log in as manager/);
     assert.match(html, /name="username"/);
     assert.match(html, /name="password"/);
+    assert.match(html, /Display name <small>\(optional\)<\/small>/);
+    const displayNameInput = html.match(
+      /<input\s+name="displayName"[\s\S]*?\/>/,
+    );
+    assert.ok(displayNameInput);
+    assert.doesNotMatch(displayNameInput[0], /\brequired\b/);
     assert.doesNotMatch(html, /Actor A|Actor B|Actor C|Actor D/);
     assert.doesNotMatch(html, /Current viewpoint|Run all|Scenario control/);
     assert.doesNotMatch(html, /registers as a buyer, merchant, or regulator/i);
     assert.doesNotMatch(html, /name=["']role["']/);
+
+    const registerHandler = appScript.slice(
+      appScript.indexOf('elements.registerForm.addEventListener("submit"'),
+      appScript.indexOf('elements.loginForm.addEventListener("submit"'),
+    );
+    assert.ok(
+      registerHandler.indexOf("formValues(elements.registerForm)") <
+        registerHandler.indexOf("setBusy(true)"),
+      "registration must read enabled controls before disabling them",
+    );
+
+    const loginHandler = appScript.slice(
+      appScript.indexOf('elements.loginForm.addEventListener("submit"'),
+      appScript.indexOf('elements.managerLogin.addEventListener("click"'),
+    );
+    assert.ok(
+      loginHandler.indexOf("formValues(elements.loginForm)") <
+        loginHandler.indexOf("setBusy(true)"),
+      "login must read enabled controls before disabling them",
+    );
   });
 
   it("registers four equal users, logs into each account, and completes the real workflow", async () => {
@@ -110,7 +137,7 @@ describe("registered-user browser journey", () => {
     assert.equal(anonymousDashboard.payload.code, "AUTH_REQUIRED");
 
     const users = [
-      { username: "alice", displayName: "Alice Chen" },
+      { username: "alice" },
       { username: "ben", displayName: "Ben Wu" },
       { username: "clara", displayName: "Clara Lee" },
       { username: "david", displayName: "David Lin" },
@@ -130,6 +157,10 @@ describe("registered-user browser journey", () => {
         "username",
       ]);
       assert.equal("role" in result.payload.account, false);
+      assert.equal(
+        result.payload.account.displayName,
+        "displayName" in user ? user.displayName : user.username,
+      );
     }
 
     const wrongPassword = await new BrowserSession(origin).request<{

@@ -208,6 +208,14 @@ function requiredText(value: unknown, field: string): string {
   return normalized;
 }
 
+function displayName(value: unknown, fallback: string): string {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (typeof value !== "string") {
+    throw new PlatformError(400, "INVALID_INPUT", "Display name must be text");
+  }
+  return value.normalize("NFC").trim() || fallback;
+}
+
 function username(value: unknown): string {
   const normalized = requiredText(value, "Username").toLowerCase();
   if (!/^[a-z0-9][a-z0-9._-]{2,23}$/.test(normalized)) {
@@ -276,7 +284,10 @@ export class InformationFlowPlatform {
     readonly password: unknown;
   }): PublicAccount {
     const normalizedUsername = username(input.username);
-    const displayName = requiredText(input.displayName, "Display name");
+    const normalizedDisplayName = displayName(
+      input.displayName,
+      normalizedUsername,
+    );
     const password = requiredText(input.password, "Password");
     if (password !== DEMO_PASSWORD) {
       throw new PlatformError(
@@ -296,7 +307,7 @@ export class InformationFlowPlatform {
     const account: StoredAccount = {
       userId,
       username: normalizedUsername,
-      displayName,
+      displayName: normalizedDisplayName,
       passwordSalt: salt,
       passwordHash: passwordHash(password, salt),
       signing,
