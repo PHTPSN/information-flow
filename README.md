@@ -1,5 +1,21 @@
 # Information Flow
 
+> Privacy-preserving verified reviews and dispute resolution on Midnight.
+
+This project is built on the Midnight Network.
+
+Information Flow gives every person the same account at registration. What
+they can do changes only after real events: a merchant records a purchase, a
+buyer receives a private purchase credential, a customer publishes a verified
+review or requests support, and an independent reviewer receives a specific
+escalated case. Public readers can verify the minimum public result without
+seeing the customer's identity, order details, or private support history.
+
+The Wave 1 MVP includes a working account-first web demo, a Compact contract
+that stores append-only public commitments, a live Midnight deployment and
+reconnection test, and 26 passing automated tests across the domain, UI,
+provider, wallet, and contract boundaries.
+
 The MVP treats `InformationFlow` as the aggregate root of the ontology:
 
 `Actor + Context + Record + Claim + View -> InformationFlow`
