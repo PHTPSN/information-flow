@@ -1,5 +1,7 @@
 # Information Flow
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/OWNER/REPO)
+
 > Privacy-preserving verified reviews and dispute resolution on Midnight.
 
 This project is built on the Midnight Network.
