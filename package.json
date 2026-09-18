@@ -7,11 +7,13 @@
   "scripts": {
     "compile": "compact compile contracts/information-flow.compact contracts/managed/information-flow",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/run-tsx.cjs --test --test-concurrency=1 test/information-flow.test.ts test/register-information-flow.test.ts test/four-actor-behavior.test.ts test/frontend-journey.test.ts test/midnight-commitment-anchor.test.ts test/midnight-information-flow-contract.test.ts test/midnight-providers.test.ts test/midnight-wallet.test.ts test/midnight-composition.test.ts test/midnight-contract-connection.test.ts",
+    "test": "node scripts/run-tsx.cjs --test --test-concurrency=1 test/information-flow.test.ts test/register-information-flow.test.ts test/four-actor-behavior.test.ts test/frontend-journey.test.ts test/persistence-foundation.test.ts test/midnight-commitment-anchor.test.ts test/midnight-information-flow-contract.test.ts test/midnight-providers.test.ts test/midnight-wallet.test.ts test/midnight-composition.test.ts test/midnight-contract-connection.test.ts",
     "demo:build": "tsc -p tsconfig.demo.json",
-    "demo": "npm run demo:build && node dist-demo/demo-server.js",
+    "demo": "npm run demo:build && node --env-file-if-exists=.env dist-demo/demo-server.js",
     "test:live": "node scripts/run-tsx.cjs test/live-midnight-commitment.ts",
     "test:live:scenario": "node scripts/run-tsx.cjs test/live-four-actor-scenario.ts",
+    "test:foundation": "node scripts/run-tsx.cjs --test --test-concurrency=1 test/persistence-foundation.test.ts",
+    "test:frontend": "node scripts/run-tsx.cjs --test --test-concurrency=1 test/frontend-journey.test.ts",
     "check": "npm run compile && npm run typecheck && npm test"
   },
   "devDependencies": {

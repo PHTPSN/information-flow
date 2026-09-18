@@ -54,6 +54,16 @@
             >
               Create account
             </button>
+            <button
+              id="show-administrator-login"
+              class="auth-tab"
+              type="button"
+              role="tab"
+              aria-selected="false"
+              aria-controls="administrator-login-form"
+            >
+              Administrator
+            </button>
           </div>
 
           <form id="login-form" class="auth-form" aria-labelledby="login-title">
@@ -76,12 +86,11 @@
                 name="password"
                 type="password"
                 autocomplete="current-password"
-                value="123456"
+                minlength="8"
                 required
               />
             </label>
             <button class="button button-primary" type="submit">Log in</button>
-            <p class="demo-hint">Demo password: <code>123456</code></p>
           </form>
 
           <form
@@ -119,7 +128,7 @@
                 name="password"
                 type="password"
                 autocomplete="new-password"
-                value="123456"
+                minlength="8"
                 required
               />
             </label>
@@ -127,13 +136,49 @@
             <p id="register-success" class="form-success" hidden></p>
           </form>
 
-          <div class="manager-access">
-            <span>Setting up the workspace?</span>
-            <button id="manager-login" class="text-button" type="button">
-              Log in as manager
+          <form
+            id="administrator-login-form"
+            class="auth-form"
+            aria-labelledby="administrator-login-title"
+            hidden
+          >
+            <div>
+              <p class="overline">Restricted access</p>
+              <h2 id="administrator-login-title">Administrator login</h2>
+              <p class="auth-note">
+                Existing administrators only. New administrator registration is
+                not currently available.
+              </p>
+            </div>
+            <label>
+              <span>Username</span>
+              <input
+                name="username"
+                autocomplete="username"
+                required
+                placeholder="administrator username"
+              />
+            </label>
+            <label>
+              <span>Password</span>
+              <input
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                minlength="8"
+                required
+              />
+            </label>
+            <button class="button button-primary" type="submit">
+              Log in as administrator
             </button>
-          </div>
+          </form>
         </div>
+        <section class="auth-card public-review-card" aria-labelledby="public-reviews-title">
+          <p class="overline">Public</p>
+          <h2 id="public-reviews-title">Verified reviews</h2>
+          <div id="public-reviews" class="review-list"></div>
+        </section>
       </section>
     </main>
 
@@ -143,6 +188,17 @@
           <span class="brand-mark" aria-hidden="true">IF</span>
           <span>Information Flow</span>
         </a>
+        <nav class="workspace-tabs" role="tablist" aria-label="Workspace">
+          <button class="workspace-tab is-active" type="button" role="tab" data-tab="shop" aria-selected="true">
+            Shop
+          </button>
+          <button class="workspace-tab" type="button" role="tab" data-tab="account" aria-selected="false">
+            Account
+          </button>
+          <button class="workspace-tab" type="button" role="tab" data-tab="activity" aria-selected="false">
+            Activity
+          </button>
+        </nav>
         <div class="account-menu">
           <div>
             <strong id="account-name"></strong>
@@ -153,6 +209,7 @@
       </header>
 
       <main class="app-main" id="home">
+        <div id="shop-panel" class="tab-panel" role="tabpanel">
         <section class="welcome-card">
           <div>
             <p class="overline" id="welcome-overline">Your account</p>
@@ -165,26 +222,15 @@
           </div>
         </section>
 
-        <section id="manager-section" class="workspace-section" hidden>
+        <section id="catalog-section" class="workspace-section catalog-section">
           <div class="section-heading">
             <div>
-              <p class="overline">Workspace setup</p>
-              <h2>Connect Acme Audio</h2>
+              <p class="overline">Marketplace</p>
+              <h2>Shop by merchant</h2>
             </div>
-            <span id="manager-status" class="badge"></span>
+            <span class="section-note">Open a merchant to browse its products.</span>
           </div>
-          <form id="configure-form" class="inline-form">
-            <label>
-              <span>Acme operations account</span>
-              <select name="merchantUsername" required></select>
-            </label>
-            <label>
-              <span>Independent case reviewer</span>
-              <select name="regulatorUsername" required></select>
-            </label>
-            <button class="button button-primary" type="submit">Save setup</button>
-          </form>
-          <div id="registered-users" class="user-list"></div>
+          <div id="merchant-directory" class="merchant-directory"></div>
         </section>
 
         <section id="purchases-section" class="workspace-section" hidden>
@@ -193,18 +239,135 @@
               <p class="overline">Private to you</p>
               <h2>My purchases</h2>
             </div>
+            <span class="section-note">Review a purchase or request a replacement here.</span>
           </div>
           <div id="purchases" class="card-grid"></div>
+        </section>
+        </div>
+
+        <div id="account-panel" class="tab-panel" role="tabpanel" hidden>
+        <section class="tab-intro">
+          <p class="overline">Account</p>
+          <h1>Account &amp; merchant workspace</h1>
+          <p>Manage organizations, authority, purchases, support, and assigned cases.</p>
+        </section>
+        <details id="foundation-section" class="workspace-section settings-section">
+          <summary class="section-heading settings-summary">
+            <div>
+              <p class="overline">Account settings</p>
+              <h2>Account &amp; merchant tools</h2>
+            </div>
+            <span class="section-note">Organizations, memberships, roles, and authority.</span>
+          </summary>
+          <form id="organization-form" class="inline-form">
+            <label>
+              <span>Organization ID</span>
+              <input name="organizationId" required placeholder="e.g. acme-audio" />
+            </label>
+            <label>
+              <span>Organization name</span>
+              <input name="name" required placeholder="e.g. Acme Audio" />
+            </label>
+            <button class="button button-primary" type="submit">Request organization</button>
+          </form>
+          <form id="membership-form" class="inline-form" hidden>
+            <label>
+              <span>Organization to join</span>
+              <select name="organizationId" required></select>
+            </label>
+            <button class="button button-secondary" type="submit">Request membership</button>
+          </form>
+          <form id="special-role-form" class="inline-form" hidden>
+            <input name="role" type="hidden" value="regulator" />
+            <label>
+              <span>Regulator application</span>
+              <input
+                name="justification"
+                required
+                placeholder="Explain why you need regulatory review access"
+              />
+            </label>
+            <button class="button button-secondary" type="submit">Apply as regulator</button>
+          </form>
+          <form id="product-form" class="inline-form" hidden>
+            <label>
+              <span>Organization</span>
+              <select name="organizationId" required></select>
+            </label>
+            <label>
+              <span>Product ID</span>
+              <input name="productId" required placeholder="e.g. H1" />
+            </label>
+            <label>
+              <span>Product name</span>
+              <input name="name" required placeholder="e.g. H1 Headphones" />
+            </label>
+            <button class="button button-primary" type="submit">Add product</button>
+          </form>
+          <form id="grant-form" class="inline-form" hidden>
+            <label>
+              <span>Product</span>
+              <select name="productId" required></select>
+            </label>
+            <label>
+              <span>Account</span>
+              <select name="granteeUsername" required></select>
+            </label>
+            <label>
+              <span>Authority</span>
+              <select name="capability" required>
+                <option value="issue-purchase-credential">Record purchases</option>
+                <option value="handle-support-cases">Handle support cases</option>
+              </select>
+            </label>
+            <label>
+              <span>Expires <small>(optional)</small></span>
+              <input name="expiresAt" type="datetime-local" />
+            </label>
+            <button class="button button-primary" type="submit">Grant authority</button>
+          </form>
+          <div id="organizations" class="user-list"></div>
+          <div id="organization-requests" class="user-list"></div>
+          <div id="memberships" class="user-list"></div>
+          <div id="membership-requests" class="user-list"></div>
+          <div id="special-role-requests" class="user-list"></div>
+          <div id="authority-grants" class="user-list"></div>
+        </details>
+
+        <section id="membership-approvals-section" class="workspace-section" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="overline">Organization creator approval</p>
+              <h2>Membership requests</h2>
+            </div>
+          </div>
+          <div id="membership-approvals" class="user-list"></div>
+        </section>
+
+        <section id="administrator-section" class="workspace-section" hidden>
+          <div class="section-heading">
+            <div>
+              <p class="overline">System administration</p>
+              <h2>Pending approvals</h2>
+            </div>
+            <span class="section-note">Separate from ordinary account capabilities.</span>
+          </div>
+          <div id="administrator-organization-approvals" class="user-list"></div>
+          <div id="administrator-role-approvals" class="user-list"></div>
         </section>
 
         <section id="sales-section" class="workspace-section" hidden>
           <div class="section-heading">
             <div>
-              <p class="overline">Acme Audio</p>
+              <p class="overline">Authorized work</p>
               <h2>Record a customer purchase</h2>
             </div>
           </div>
           <form id="purchase-form" class="inline-form">
+            <label>
+              <span>Product</span>
+              <select name="productId" required></select>
+            </label>
             <label>
               <span>Customer</span>
               <select name="buyerUsername" required></select>
@@ -220,7 +383,7 @@
         <section id="support-section" class="workspace-section" hidden>
           <div class="section-heading">
             <div>
-              <p class="overline">Acme Audio</p>
+              <p class="overline">Authorized work</p>
               <h2>Support inbox</h2>
             </div>
           </div>
@@ -236,26 +399,30 @@
           </div>
           <div id="assigned-cases" class="card-grid"></div>
         </section>
+        </div>
 
-        <section id="reviews-section" class="workspace-section">
-          <div class="section-heading">
-            <div>
-              <p class="overline">H1 Headphones</p>
-              <h2>Customer reviews</h2>
-            </div>
-            <span class="section-note">Order details are never shown here.</span>
-          </div>
-          <div id="reviews" class="review-list"></div>
-        </section>
-
+        <div id="activity-panel" class="tab-panel" role="tabpanel" hidden>
         <section id="activity-section" class="workspace-section" hidden>
           <div class="section-heading">
             <div>
               <p class="overline">Recent</p>
-              <h2>Account activity</h2>
+              <h2>Activity inbox</h2>
             </div>
           </div>
           <ol id="activity" class="activity-list"></ol>
+        </section>
+        </div>
+      </main>
+
+      <main id="review-view" class="app-main detail-view" hidden>
+        <button id="back-to-shop" class="text-button back-button" type="button">
+          ← Back to shop
+        </button>
+        <section class="review-detail-card">
+          <p class="overline">Verified buyers</p>
+          <h1 id="review-view-title">Product reviews</h1>
+          <p class="section-note">Order details are never shown here.</p>
+          <div id="review-view-list" class="review-list"></div>
         </section>
       </main>
 

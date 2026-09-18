@@ -54,7 +54,7 @@ button:disabled,
 input:disabled,
 select:disabled,
 textarea:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.65;
 }
 
@@ -204,7 +204,7 @@ h3 {
 }
 
 .auth-card {
-  width: min(100%, 480px);
+  width: min(100%, 520px);
   padding: clamp(28px, 5vw, 48px);
   border: 1px solid var(--line);
   border-radius: var(--radius-xl);
@@ -216,18 +216,20 @@ h3 {
   margin-bottom: 38px;
   padding: 5px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   border-radius: 13px;
   background: var(--surface-soft);
 }
 
 .auth-tab {
-  padding: 11px 14px;
+  padding: 11px 8px;
   border: 0;
   border-radius: 9px;
   background: transparent;
   color: var(--muted);
+  font-size: 14px;
   font-weight: 750;
+  white-space: nowrap;
 }
 
 .auth-tab.is-active {
@@ -245,6 +247,13 @@ h3 {
 .auth-form h2 {
   margin-bottom: 0;
   font-size: 30px;
+}
+
+.auth-note {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 label {
@@ -343,17 +352,6 @@ code {
   color: var(--forest-2);
 }
 
-.manager-access {
-  margin-top: 32px;
-  padding-top: 24px;
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 13px;
-}
-
 .text-button {
   padding: 0;
   border: 0;
@@ -395,6 +393,33 @@ code {
 .account-menu span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.workspace-tabs {
+  padding: 5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.workspace-tab {
+  min-height: 38px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.workspace-tab.is-active {
+  background: var(--forest);
+  color: white;
+  box-shadow: 0 5px 14px rgba(23, 63, 45, 0.16);
 }
 
 .app-main {
@@ -459,6 +484,196 @@ code {
 
 .workspace-section {
   padding: 64px 0 0;
+}
+
+.tab-intro {
+  padding: 42px 0 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab-intro h1,
+.review-detail-card h1 {
+  margin-bottom: 12px;
+  font-size: clamp(36px, 5vw, 58px);
+}
+
+.tab-intro > p:last-child {
+  color: var(--muted);
+}
+
+.catalog-section {
+  padding-top: 42px;
+}
+
+.merchant-directory {
+  display: grid;
+  gap: 16px;
+}
+
+.merchant-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: 0 12px 34px rgba(20, 44, 31, 0.06);
+}
+
+.merchant-summary {
+  min-height: 92px;
+  padding: 20px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.merchant-summary::-webkit-details-marker {
+  display: none;
+}
+
+.merchant-summary > div {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.merchant-summary::after {
+  content: "+";
+  color: var(--forest-2);
+  font-size: 28px;
+  font-weight: 500;
+}
+
+.merchant-card[open] .merchant-summary::after {
+  content: "−";
+}
+
+.merchant-monogram {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--forest);
+  color: var(--lime);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.merchant-product-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.product-grid {
+  padding: 0 24px 24px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.product-card {
+  min-width: 0;
+  padding-top: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.product-visual {
+  aspect-ratio: 4 / 3;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 72% 22%, rgba(201, 242, 79, 0.8), transparent 22%),
+    linear-gradient(145deg, #e9eee7, #d8e1d8);
+  color: var(--forest);
+}
+
+.product-visual span {
+  font-size: clamp(48px, 8vw, 88px);
+  font-weight: 900;
+  opacity: 0.72;
+}
+
+.product-copy {
+  padding-top: 18px;
+}
+
+.product-copy h3 {
+  margin-bottom: 8px;
+  font-size: 22px;
+}
+
+.product-actions {
+  margin-top: auto;
+}
+
+.catalog-reviews {
+  margin-top: 32px;
+  padding: 28px;
+  border-radius: var(--radius-xl);
+  background: var(--surface-soft);
+}
+
+.detail-view {
+  min-height: calc(100vh - 178px);
+}
+
+.back-button {
+  margin: 8px 0 28px;
+  font-size: 14px;
+}
+
+.review-detail-card {
+  min-height: 460px;
+  padding: clamp(28px, 5vw, 54px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.review-detail-card .review-list {
+  margin-top: 34px;
+}
+
+.compact-heading {
+  align-items: center;
+}
+
+.settings-section {
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-summary {
+  margin-bottom: 0;
+  padding-bottom: 24px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-summary::after {
+  content: "+";
+  color: var(--forest-2);
+  font-size: 30px;
+  font-weight: 500;
+}
+
+.settings-section[open] .settings-summary {
+  margin-bottom: 24px;
+}
+
+.settings-section[open] .settings-summary::after {
+  content: "−";
 }
 
 .section-heading {
@@ -751,6 +966,10 @@ code {
   .card-grid {
     grid-template-columns: 1fr;
   }
+
+  .product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -760,6 +979,11 @@ code {
 
   .auth-card {
     padding: 26px 20px;
+  }
+
+  .auth-tab {
+    padding-inline: 4px;
+    font-size: 12px;
   }
 
   .auth-story {
@@ -785,6 +1009,15 @@ code {
     padding: 16px 20px;
   }
 
+  .workspace-tabs {
+    width: 100%;
+  }
+
+  .workspace-tab {
+    flex: 1;
+    padding-inline: 8px;
+  }
+
   .account-menu {
     width: 100%;
     justify-content: space-between;
@@ -802,9 +1035,14 @@ code {
     min-width: 120px;
   }
 
-  .manager-access {
-    flex-direction: column;
+  .product-grid {
+    grid-template-columns: 1fr;
   }
+
+  .merchant-summary {
+    align-items: center;
+  }
+
 }
 
 @media (prefers-reduced-motion: reduce) {

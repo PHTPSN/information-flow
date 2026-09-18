@@ -4,17 +4,18 @@
 
 This project is built on the Midnight Network.
 
-Information Flow gives every person the same account at registration. What
-they can do changes only after real events: a merchant records a purchase, a
+Information Flow gives every ordinary user the same account at registration.
+What they can do changes only after real events: a merchant records a purchase, a
 buyer receives a private purchase credential, a customer publishes a verified
 review or requests support, and an independent reviewer receives a specific
 escalated case. Public readers can verify the minimum public result without
 seeing the customer's identity, order details, or private support history.
 
-The Wave 1 MVP includes a working account-first web demo, a Compact contract
-that stores append-only public commitments, a live Midnight deployment and
-reconnection test, and 26 passing automated tests across the domain, UI,
-provider, wallet, and contract boundaries.
+The Wave 2 foundation includes a restartable account-first web application, a
+migration-driven SQLite schema, encrypted signing identities, expiring
+sessions, generic organizations and products, scoped authority lifecycle
+management, a Compact contract that stores append-only public commitments, a
+live Midnight deployment and reconnection test, and 27 passing ordinary tests.
 
 The MVP treats `InformationFlow` as the aggregate root of the ontology:
 
@@ -54,31 +55,76 @@ The scenario exercises four accounts from a blank state:
 4. Actor C reads the public review but gains no private access.
 5. A opens support case `CASE-992`; B sees only the required eligibility facts.
 6. B records an integrity-protected support decision.
-7. Actor D receives regulatory authority.
-8. A authorizes a recipient-, case-, purpose-, and record-bound bridge for
-   `REG-443`; only D can verify it.
+7. A authorizes a recipient-, case-, purpose-, and record-bound bridge for
+   `REG-443` to Actor D.
+8. The exact disclosure, rather than a global reviewer role, allows only D to
+   verify that case.
 
 `src/four-actor-scenario.ts` remains the deterministic protocol fixture used by
 the live commitment test. The user-facing application is implemented by
-`src/platform-demo.ts`, `src/demo-server.ts`, and `web/`. It opens on a normal
-login and registration screen, creates every user with the same account schema,
-uses an HTTP-only session cookie, and reveals purchase, business, support, or
-case tools only after the corresponding credential, authority grant, or case
-relationship exists. The separate `manager` demo account configures the Acme
-workspace after users register; it is not a role option on user registration.
+`src/platform-demo.ts`, `src/demo-server.ts`, and `web/`. It opens with ordinary
+login and registration modes plus a separate administrator-login mode, creates
+every ordinary user with the same account schema, and uses an HTTP-only session
+cookie. Purchase, business,
+support, or case tools appear only after the corresponding credential,
+authority grant, or case relationship exists. An ordinary account may request an organization, but the
+bootstrap system administrator must approve it before the requester receives
+organization control. The organization creator approves later membership
+requests. Scoped product authority can be issued only to approved members, and
+regulator capability is granted only after a separate administrator-approved
+application. Existing ordinary accounts keep the same neutral account schema.
 
-Run it locally with:
+The SQLite schema lives in `migrations/` and is applied explicitly through the
+migration runner in `src/persistence.ts`. Accounts, password hashes, encrypted
+Ed25519 private keys, login sessions, organizations, control relationships,
+products, grants, inbox events, and immutable audit events survive a restart.
+Only a SHA-256 hash of each session token is stored. Grant expiration and
+revocation are evaluated by the centralized policy layer before every covered
+operation.
 
-```powershell
-npm run demo
+From Linux or Ubuntu WSL, use the primary startup script:
+
+```bash
+./start.sh
 ```
 
-Then open `http://127.0.0.1:4173`. User and manager demo passwords are
-`123456`. The server keeps accounts, password hashes, sessions, signing keys,
-and scenario data only in memory; it is not a production identity or credential
-service. Ed25519 signatures and disclosure policy are currently verified in the
-off-chain domain layer; the Compact contract anchors commitments but does not
-itself prove those policy decisions.
+`start.sh` creates the ignored `.env` file with a stable cryptographically
+random data-encryption key on the first run, installs missing npm dependencies,
+builds the application, and starts it at `http://127.0.0.1:4173`. The same key
+is required after every restart, so the script never replaces an existing key.
+Press `Ctrl+C` to stop the server.
+
+On the first run, the script stores the initial administrator as normal database
+data: the account row is linked from `system_administrators`. Administrator
+credentials remain configuration data and are never shown on the login page.
+The administrator approves organization-creation and regulator applications;
+the creator of an approved organization separately approves membership
+requests.
+
+Use another port or explicitly refresh dependencies when needed:
+
+```bash
+./start.sh --port 4175
+./start.sh --install
+```
+
+Windows PowerShell is an alternative entry point. It delegates to the same
+`start.sh` implementation through WSL:
+
+```powershell
+.\start.ps1
+.\start.ps1 -Port 4175
+.\start.ps1 -Install
+```
+
+Ordinary-user registration accepts any password from 8 to 128 characters and
+never grants administrator status. New administrators are not self-registered;
+they remain separately managed database records. Purchases, reviews, support
+cases, disclosures, and Midnight submission tracking are still
+in-memory Wave 1 boundaries and are the next persistence slice. Ed25519
+signatures and disclosure policy are verified in the off-chain domain layer;
+the Compact contract anchors commitments but does not itself prove those policy
+decisions.
 
 ## Registration use case
 
@@ -97,8 +143,8 @@ the official provider set, `src/midnight-wallet.ts` provides a local-only wallet
 factory, and `src/midnight-composition.ts` assembles those pieces with a
 connected contract interface. `src/midnight-contract-connection.ts` supplies
 the stateless deployment and public-address reconnection boundary. Persistent
-application storage is not implemented, so the caller remains responsible for
-securely retaining the private flow and nonce.
+commitment-submission tracking is not implemented yet, so the caller remains
+responsible for securely retaining the private flow and nonce.
 
 ## Midnight contract definition
 

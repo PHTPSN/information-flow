@@ -9,10 +9,16 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { ApplicationError } from "./application-error.js";
 import {
+  DEFAULT_ADMIN_DISPLAY_NAME,
+  DEFAULT_ADMIN_PASSWORD,
+  DEFAULT_ADMIN_USERNAME,
   InformationFlowPlatform,
   PlatformError,
+  type InformationFlowPlatformOptions,
 } from "./platform-demo.js";
+import { decodeDataEncryptionKey } from "./persistence.js";
 
 const adjacentWebDirectory = fileURLToPath(new URL("../web/", import.meta.url));
 const WEB_DIRECTORY = existsSync(adjacentWebDirectory)
@@ -96,16 +102,23 @@ function clearSessionHeader(): string {
   return `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`;
 }
 
-export function createInformationFlowDemoServer(): Server {
-  const platform = new InformationFlowPlatform();
+export function createInformationFlowDemoServer(
+  options: InformationFlowPlatformOptions = {},
+): Server {
+  const platform = new InformationFlowPlatform(options);
 
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
       if (request.method === "GET" && url.pathname === "/api/session") {
         const account = platform.session(sessionToken(request));
         sendJson(response, 200, { authenticated: account !== null, account });
+        return;
+      }
+
+      if (request.method === "GET" && url.pathname === "/api/public/reviews") {
+        sendJson(response, 200, { reviews: platform.publicReviews() });
         return;
       }
 
@@ -132,9 +145,15 @@ export function createInformationFlowDemoServer(): Server {
         return;
       }
 
-      if (request.method === "POST" && url.pathname === "/api/login/manager") {
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/administrator/login"
+      ) {
         const body = await readJson(request);
-        const token = platform.loginManager({ password: body.password });
+        const token = platform.loginAdministrator({
+          username: body.username,
+          password: body.password,
+        });
         sendJson(response, 200, platform.dashboard(token), {
           "set-cookie": sessionHeader(token),
         });
@@ -155,14 +174,140 @@ export function createInformationFlowDemoServer(): Server {
         return;
       }
 
-      if (request.method === "POST" && url.pathname === "/api/manager/configure") {
+      if (request.method === "POST" && url.pathname === "/api/organizations") {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          202,
+          platform.requestOrganization(requireToken(request), {
+            organizationId: body.organizationId,
+            name: body.name,
+          }),
+        );
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/administrator/organization-requests/decide"
+      ) {
         const body = await readJson(request);
         sendJson(
           response,
           200,
-          platform.configure(requireToken(request), {
-            merchantUsername: body.merchantUsername,
-            regulatorUsername: body.regulatorUsername,
+          platform.decideOrganizationRequest(requireToken(request), {
+            requestId: body.requestId,
+            decision: body.decision,
+            note: body.note,
+          }),
+        );
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/membership-requests"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          202,
+          platform.requestMembership(requireToken(request), {
+            organizationId: body.organizationId,
+          }),
+        );
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/membership-requests/decide"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          200,
+          platform.decideMembershipRequest(requireToken(request), {
+            requestId: body.requestId,
+            decision: body.decision,
+            note: body.note,
+          }),
+        );
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/special-role-requests"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          202,
+          platform.requestSpecialRole(requireToken(request), {
+            role: body.role,
+            justification: body.justification,
+          }),
+        );
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/administrator/special-role-requests/decide"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          200,
+          platform.decideSpecialRoleRequest(requireToken(request), {
+            requestId: body.requestId,
+            decision: body.decision,
+            note: body.note,
+          }),
+        );
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/products") {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          201,
+          platform.createProduct(requireToken(request), {
+            organizationId: body.organizationId,
+            productId: body.productId,
+            name: body.name,
+          }),
+        );
+        return;
+      }
+
+      if (request.method === "POST" && url.pathname === "/api/authority-grants") {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          201,
+          platform.grantAuthority(requireToken(request), {
+            productId: body.productId,
+            granteeUsername: body.granteeUsername,
+            capability: body.capability,
+            expiresAt: body.expiresAt,
+          }),
+        );
+        return;
+      }
+
+      if (
+        request.method === "POST" &&
+        url.pathname === "/api/authority-grants/revoke"
+      ) {
+        const body = await readJson(request);
+        sendJson(
+          response,
+          200,
+          platform.revokeAuthority(requireToken(request), {
+            grantId: body.grantId,
           }),
         );
         return;
@@ -176,9 +321,15 @@ export function createInformationFlowDemoServer(): Server {
           "/api/actions/issue-purchase",
           (token, body) =>
             platform.issuePurchase(token, {
+              productId: body.productId,
               buyerUsername: body.buyerUsername,
               orderId: body.orderId,
             }),
+        ],
+        [
+          "/api/actions/buy-product",
+          (token, body) =>
+            platform.buyProduct(token, { productId: body.productId }),
         ],
         [
           "/api/actions/publish-review",
@@ -211,7 +362,11 @@ export function createInformationFlowDemoServer(): Server {
         [
           "/api/actions/escalate",
           (token, body) =>
-            platform.escalate(token, { purchaseId: body.purchaseId }),
+            platform.escalate(token, {
+              purchaseId: body.purchaseId,
+              reviewerUsername: body.reviewerUsername,
+              purpose: body.purpose,
+            }),
         ],
         [
           "/api/actions/verify-case",
@@ -245,14 +400,18 @@ export function createInformationFlowDemoServer(): Server {
 
       sendJson(response, 404, { error: "Not found", code: "NOT_FOUND" });
     } catch (error) {
-      const status = error instanceof PlatformError ? error.status : 400;
-      const code = error instanceof PlatformError ? error.code : "REQUEST_FAILED";
+      const expected =
+        error instanceof PlatformError || error instanceof ApplicationError;
+      const status = expected ? error.status : 500;
+      const code = expected ? error.code : "REQUEST_FAILED";
       sendJson(response, status, {
-        error: error instanceof Error ? error.message : "Request failed",
+        error: expected ? error.message : "Request failed",
         code,
       });
     }
   });
+  server.once("close", () => platform.close());
+  return server;
 }
 
 /** Kept as an import-compatible name for existing local scripts. */
@@ -265,7 +424,29 @@ if (invokedPath === fileURLToPath(import.meta.url)) {
     10,
   );
   const port = Number.isInteger(parsedPort) && parsedPort > 0 ? parsedPort : 4173;
-  const server = createInformationFlowDemoServer();
+  const dataKey = process.env.INFORMATION_FLOW_DATA_KEY;
+  if (dataKey === undefined) {
+    throw new Error(
+      "Set INFORMATION_FLOW_DATA_KEY to a base64url-encoded 32-byte local secret",
+    );
+  }
+  const databasePath = path.resolve(
+    process.env.INFORMATION_FLOW_DATABASE_PATH ??
+      path.join("data", "information-flow.sqlite"),
+  );
+  const server = createInformationFlowDemoServer({
+    databasePath,
+    encryptionKey: decodeDataEncryptionKey(dataKey),
+    bootstrapAdministrator: {
+      username:
+        process.env.INFORMATION_FLOW_ADMIN_USERNAME ?? DEFAULT_ADMIN_USERNAME,
+      displayName:
+        process.env.INFORMATION_FLOW_ADMIN_DISPLAY_NAME ??
+        DEFAULT_ADMIN_DISPLAY_NAME,
+      password:
+        process.env.INFORMATION_FLOW_ADMIN_PASSWORD ?? DEFAULT_ADMIN_PASSWORD,
+    },
+  });
   server.listen(port, "127.0.0.1", () => {
     process.stdout.write(`Information Flow MVP: http://127.0.0.1:${port}\n`);
   });

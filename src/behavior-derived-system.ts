@@ -73,6 +73,7 @@ export interface ProductRegistration {
 
 export type AuthorityCapability =
   | "issue-purchase-credential"
+  | "handle-support-cases"
   | "verify-regulatory-evidence";
 
 export interface SignedAuthorityGrant {
@@ -123,6 +124,7 @@ export interface SupportRequestInput {
   readonly credentialId: string;
   readonly holderSecret: string;
   readonly organizationId: string;
+  readonly recipientId?: string;
   readonly request: "replacement";
   readonly requestedAt: string;
   readonly policyVersion: string;
@@ -625,7 +627,10 @@ export class BehaviorDerivedInformationFlowSystem {
         `${grant.authorityId} is not the trusted test authority`,
       );
     }
-    if (grant.capability === "issue-purchase-credential") {
+    if (
+      grant.capability === "issue-purchase-credential" ||
+      grant.capability === "handle-support-cases"
+    ) {
       this.#requireProduct(grant.scopeId);
     } else if (grant.scopeId !== this.#options.regulatoryScopeId) {
       throw new PolicyDeniedError(
@@ -902,6 +907,8 @@ export class BehaviorDerivedInformationFlowSystem {
       throw new TypeError(`caseId: duplicate ${input.caseId}`);
     }
     const organization = this.#requireOrganization(input.organizationId);
+    const recipientId = input.recipientId ?? organization.registeredBy;
+    this.#requireActor(recipientId);
     const requestedAt = timestamp(input.requestedAt, "requestedAt");
     const age = Date.parse(requestedAt) - Date.parse(credential.purchasedAt);
     if (age < 0 || age > THIRTY_DAYS_MS) {
@@ -919,7 +926,7 @@ export class BehaviorDerivedInformationFlowSystem {
       flowId: `support:${input.caseId}`,
       context: "support",
       policyVersion: text(input.policyVersion, "policyVersion"),
-      actorIds: [credential.holderId, organization.registeredBy],
+      actorIds: [credential.holderId, recipientId],
       senderId: credential.holderId,
       records: [
         {
@@ -947,7 +954,7 @@ export class BehaviorDerivedInformationFlowSystem {
           issuerId: credential.issuerId,
         },
       ],
-      recipient: { kind: "actor", actorId: organization.registeredBy },
+      recipient: { kind: "actor", actorId: recipientId },
       visibleClaimIds: [
         `${input.caseId}:product`,
         `${input.caseId}:within-thirty-days`,
@@ -972,14 +979,14 @@ export class BehaviorDerivedInformationFlowSystem {
       input: { ...input, requestedAt },
       credentialId: credential.credentialId,
       productId: credential.productId,
-      recipientId: organization.registeredBy,
+      recipientId,
       view,
     });
     this.#events.push({
       type: "SupportRequested",
       caseId: view.caseId,
       actorId: input.actorId,
-      recipientId: organization.registeredBy,
+      recipientId,
       productId: credential.productId,
       commitment,
     });
@@ -1156,7 +1163,7 @@ export class BehaviorDerivedInformationFlowSystem {
         `${bridge.purpose} is not the declared purpose for ${bridge.caseId}`,
       );
     }
-    enforce(this.#canReceiveRegulatoryEvidence(bridge.recipientId));
+    this.#requireActor(bridge.recipientId);
     if (this.#bridges.has(bridge.bridgeId)) {
       throw new TypeError(`bridgeId: duplicate ${bridge.bridgeId}`);
     }
@@ -1253,10 +1260,6 @@ export class BehaviorDerivedInformationFlowSystem {
         `${request.actorId} is not the authorized recipient of ${request.bridgeId}`,
       );
     }
-    const authority = this.#canReceiveRegulatoryEvidence(request.actorId);
-    if (!authority.allowed) {
-      return authority;
-    }
     if (bridge.caseId !== request.caseId) {
       return deny(
         "CASE_MISMATCH",
@@ -1334,7 +1337,9 @@ export class BehaviorDerivedInformationFlowSystem {
               action:
                 event.capability === "issue-purchase-credential"
                   ? "issue-purchase-credential"
-                  : "verify-regulatory-evidence",
+                  : event.capability === "handle-support-cases"
+                    ? "decide-support-case"
+                    : "verify-regulatory-evidence",
               resourceId: event.scopeId,
               basisId: event.grantId,
             });

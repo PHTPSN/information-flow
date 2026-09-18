@@ -1,11 +1,18 @@
 import {
   generateKeyPairSync,
   randomBytes,
+  randomUUID,
   scryptSync,
   sign as signPayload,
   timingSafeEqual,
   type KeyObject,
 } from "node:crypto";
+
+import { ApplicationError } from "./application-error.js";
+import {
+  AuthorizationPolicy,
+  authorityGrantStatus,
+} from "./authorization-policy.js";
 
 import {
   BehaviorDerivedInformationFlowSystem,
@@ -22,34 +29,33 @@ import {
   type SignedSupportDecision,
   type SupportRecipientView,
 } from "./behavior-derived-system.js";
+import {
+  ApplicationStore,
+  sessionTokenHash,
+  type AccountRecord,
+  type GrantCapability,
+  type ProductRecord,
+  type SpecialRole,
+} from "./persistence.js";
 
-export const DEMO_PASSWORD = "123456";
-export const MANAGER_USERNAME = "manager";
-
-const PRODUCT_ID = "H1";
-const PRODUCT_NAME = "H1 Headphones";
-const ORGANIZATION_ID = "acme-audio";
-const ORGANIZATION_NAME = "Acme Audio";
-const REGULATORY_SCOPE = "consumer-products-demo";
-const REGULATORY_PURPOSE = "investigate the H1 battery safety dispute";
+export const DEFAULT_ADMIN_USERNAME = "manager";
+export const DEFAULT_ADMIN_DISPLAY_NAME = "Manager";
+export const DEFAULT_ADMIN_PASSWORD = "12345678";
+const REGULATORY_SCOPE = "case-specific-disclosure";
+const DEFAULT_DISCLOSURE_PURPOSE = "independent review of the disclosed case";
+const DEFAULT_SESSION_TTL_MS = 60 * 60 * 1_000;
 
 interface SigningIdentity {
   readonly publicKey: string;
   readonly privateKey: KeyObject;
 }
 
-interface StoredAccount {
-  readonly userId: string;
-  readonly username: string;
-  readonly displayName: string;
-  readonly passwordSalt: Buffer;
-  readonly passwordHash: Buffer;
-  readonly signing: SigningIdentity;
-  readonly createdAt: string;
-}
+type StoredAccount = AccountRecord;
 
 interface StoredPurchase {
   readonly credentialId: string;
+  readonly productId: string;
+  readonly organizationId: string;
   readonly buyerId: string;
   readonly issuerId: string;
   readonly orderId: string;
@@ -65,6 +71,7 @@ interface StoredSupportCase {
   readonly buyerId: string;
   readonly merchantId: string;
   readonly credentialId: string;
+  readonly productId: string;
   readonly view: SupportRecipientView;
   decisionId: string | null;
   outcome: "pending" | "approved" | "rejected";
@@ -77,14 +84,12 @@ interface StoredRegulatoryCase {
   readonly buyerId: string;
   readonly recipientId: string;
   readonly credentialId: string;
+  readonly productId: string;
+  readonly purpose: string;
   readonly recordIds: readonly string[];
   verified: boolean;
   result: EvidenceVerificationResult | null;
 }
-
-type SessionPrincipal =
-  | { readonly kind: "manager" }
-  | { readonly kind: "user"; readonly userId: string };
 
 export interface PublicAccount {
   readonly userId: string;
@@ -95,23 +100,112 @@ export interface PublicAccount {
 
 export interface PlatformDashboard {
   readonly account: {
-    readonly kind: "manager" | "user";
+    readonly kind: "user";
     readonly username: string;
     readonly displayName: string;
+    readonly isAdministrator: boolean;
+    readonly specialRoles: readonly SpecialRole[];
   };
   readonly product: {
     readonly id: string;
     readonly name: string;
     readonly organization: string;
   } | null;
-  readonly manager: {
-    readonly users: readonly PublicAccount[];
-    readonly configured: boolean;
-    readonly merchantUsername: string | null;
-    readonly regulatorUsername: string | null;
-  } | null;
+  readonly organizations: readonly {
+    readonly organizationId: string;
+    readonly name: string;
+    readonly members: readonly PublicAccount[];
+    readonly products: readonly {
+      readonly productId: string;
+      readonly name: string;
+    }[];
+  }[];
+  readonly memberships: readonly {
+    readonly organizationId: string;
+    readonly organizationName: string;
+    readonly joinedAt: string;
+  }[];
+  readonly availableOrganizations: readonly {
+    readonly organizationId: string;
+    readonly name: string;
+  }[];
+  readonly organizationRequests: readonly {
+    readonly requestId: string;
+    readonly organizationId: string;
+    readonly name: string;
+    readonly status: "pending" | "approved" | "rejected";
+    readonly submittedAt: string;
+  }[];
+  readonly membershipRequests: readonly {
+    readonly requestId: string;
+    readonly organizationId: string;
+    readonly organizationName: string;
+    readonly status: "pending" | "approved" | "rejected";
+    readonly submittedAt: string;
+  }[];
+  readonly pendingMembershipApprovals: readonly {
+    readonly requestId: string;
+    readonly organizationId: string;
+    readonly organizationName: string;
+    readonly requesterUsername: string;
+    readonly requesterDisplayName: string;
+    readonly submittedAt: string;
+  }[];
+  readonly specialRoleRequests: readonly {
+    readonly requestId: string;
+    readonly role: SpecialRole;
+    readonly justification: string;
+    readonly status: "pending" | "approved" | "rejected";
+    readonly submittedAt: string;
+  }[];
+  readonly administratorApprovals: {
+    readonly organizationRequests: readonly {
+      readonly requestId: string;
+      readonly requesterUsername: string;
+      readonly organizationId: string;
+      readonly name: string;
+      readonly submittedAt: string;
+    }[];
+    readonly specialRoleRequests: readonly {
+      readonly requestId: string;
+      readonly requesterUsername: string;
+      readonly requesterDisplayName: string;
+      readonly role: SpecialRole;
+      readonly justification: string;
+      readonly submittedAt: string;
+    }[];
+  };
+  readonly products: readonly {
+    readonly productId: string;
+    readonly name: string;
+    readonly organizationId: string;
+    readonly organizationName: string;
+    readonly belongsToAccountOrganization: boolean;
+    readonly canPurchase: boolean;
+    readonly reviewCount: number;
+  }[];
+  readonly authorityGrants: readonly {
+    readonly grantId: string;
+    readonly organizationName: string;
+    readonly productId: string;
+    readonly productName: string;
+    readonly granteeUsername: string;
+    readonly capability: GrantCapability;
+    readonly status: "active" | "expired" | "revoked";
+    readonly expiresAt: string | null;
+    readonly receivedByYou: boolean;
+    readonly canRevoke: boolean;
+  }[];
+  readonly availableAccounts: readonly PublicAccount[];
+  readonly availableRegulators: readonly PublicAccount[];
+  readonly issuableProducts: readonly {
+    readonly productId: string;
+    readonly name: string;
+    readonly organizationName: string;
+  }[];
   readonly reviews: readonly {
     readonly reviewId: string;
+    readonly productId: string;
     readonly productName: string;
     readonly rating: number;
     readonly text: string;
@@ -171,15 +265,10 @@ export interface PlatformDashboard {
   };
 }
 
-export class PlatformError extends Error {
-  readonly status: number;
-  readonly code: string;
-
+export class PlatformError extends ApplicationError {
   constructor(status: number, code: string, message: string) {
-    super(message);
+    super(status, code, message);
     this.name = "PlatformError";
-    this.status = status;
-    this.code = code;
   }
 }
 
@@ -225,10 +314,73 @@ function username(value: unknown): string {
       "Username must be 3–24 characters using letters, numbers, dots, dashes, or underscores",
     );
   }
-  if (normalized === MANAGER_USERNAME) {
-    throw new PlatformError(409, "USERNAME_TAKEN", "That username is unavailable");
+  return normalized;
+}
+
+function resourceId(value: unknown, field: string): string {
+  const normalized = requiredText(value, field);
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$/.test(normalized)) {
+    throw new PlatformError(
+      400,
+      "INVALID_IDENTIFIER",
+      `${field} must be 2–64 characters using letters, numbers, dots, dashes, or underscores`,
+    );
   }
   return normalized;
+}
+
+function grantCapability(value: unknown): GrantCapability {
+  if (
+    value !== "issue-purchase-credential" &&
+    value !== "handle-support-cases"
+  ) {
+    throw new PlatformError(
+      400,
+      "INVALID_CAPABILITY",
+      "Choose purchase issuing or support handling authority",
+    );
+  }
+  return value;
+}
+
+function specialRole(value: unknown): SpecialRole {
+  if (value !== "regulator") {
+    throw new PlatformError(
+      400,
+      "INVALID_SPECIAL_ROLE",
+      "The available special role is regulator",
+    );
+  }
+  return value;
+}
+
+function approvalDecision(value: unknown): boolean {
+  if (value === "approved") return true;
+  if (value === "rejected") return false;
+  throw new PlatformError(
+    400,
+    "INVALID_DECISION",
+    "Choose approved or rejected",
+  );
+}
+
+function optionalText(value: unknown, field: string): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  return requiredText(value, field);
+}
+
+function optionalFutureTimestamp(value: unknown, now: string): string | null {
+  if (value === undefined || value === null || value === "") return null;
+  const normalized = requiredText(value, "Expiration");
+  const milliseconds = Date.parse(normalized);
+  if (!Number.isFinite(milliseconds) || normalized <= now) {
+    throw new PlatformError(
+      400,
+      "INVALID_EXPIRATION",
+      "Expiration must be a future ISO timestamp",
+    );
+  }
+  return new Date(milliseconds).toISOString();
 }
 
 function passwordHash(password: string, salt: Buffer): Buffer {
@@ -244,38 +396,71 @@ function publicAccount(account: StoredAccount): PublicAccount {
   };
 }
 
+export interface InformationFlowPlatformOptions {
+  readonly clock?: () => Date;
+  readonly databasePath?: string;
+  readonly encryptionKey?: Buffer;
+  readonly sessionTtlMs?: number;
+  readonly bootstrapAdministrator?: {
+    readonly username: string;
+    readonly displayName?: string;
+    readonly password: string;
+  };
+}
+
 export class InformationFlowPlatform {
-  readonly #authority = signingIdentity();
+  readonly #authority: SigningIdentity;
   readonly #system: BehaviorDerivedInformationFlowSystem;
+  readonly #store: ApplicationStore;
+  readonly #policy: AuthorizationPolicy;
   readonly #clock: () => Date;
+  readonly #sessionTtlMs: number;
   readonly #accountsByUsername = new Map<string, StoredAccount>();
   readonly #accountsById = new Map<string, StoredAccount>();
-  readonly #sessions = new Map<string, SessionPrincipal>();
   readonly #purchases = new Map<string, StoredPurchase>();
   readonly #reviews = new Map<string, PublicReview>();
   readonly #reviewReaders = new Map<string, Set<string>>();
   readonly #supportCases = new Map<string, StoredSupportCase>();
   readonly #regulatoryCases = new Map<string, StoredRegulatoryCase>();
-  readonly #activity = new Map<
-    string,
-    Array<{ readonly message: string; readonly at: string }>
-  >();
-  #userSequence = 0;
   #purchaseSequence = 0;
   #reviewSequence = 0;
   #supportSequence = 0;
   #regulatorySequence = 0;
-  #configured = false;
-  #merchantId: string | null = null;
-  #regulatorId: string | null = null;
-
-  constructor(options: { readonly clock?: () => Date } = {}) {
+  constructor(options: InformationFlowPlatformOptions = {}) {
     this.#clock = options.clock ?? (() => new Date());
+    this.#sessionTtlMs = options.sessionTtlMs ?? DEFAULT_SESSION_TTL_MS;
+    const databasePath = options.databasePath ?? ":memory:";
+    if (databasePath !== ":memory:" && options.encryptionKey === undefined) {
+      throw new Error(
+        "A 32-byte encryptionKey is required for a persistent database",
+      );
+    }
+    this.#store = new ApplicationStore({
+      databasePath,
+      encryptionKey: options.encryptionKey ?? randomBytes(32),
+    });
+    this.#authority = this.#store.loadOrCreateSystemSigningIdentity(
+      "platform-authority",
+      this.#now(),
+    );
     this.#system = new BehaviorDerivedInformationFlowSystem({
       trustedAuthorityId: "platform-authority",
       trustedAuthorityPublicKey: this.#authority.publicKey,
       regulatoryScopeId: REGULATORY_SCOPE,
     });
+    this.#policy = new AuthorizationPolicy(this.#store, this.#clock);
+    this.#hydrateFoundation();
+    this.#ensureBootstrapAdministrator(
+      options.bootstrapAdministrator ?? {
+        username: DEFAULT_ADMIN_USERNAME,
+        displayName: DEFAULT_ADMIN_DISPLAY_NAME,
+        password: DEFAULT_ADMIN_PASSWORD,
+      },
+    );
+  }
+
+  close(): void {
+    this.#store.close();
   }
 
   register(input: {
@@ -289,46 +474,47 @@ export class InformationFlowPlatform {
       normalizedUsername,
     );
     const password = requiredText(input.password, "Password");
-    if (password !== DEMO_PASSWORD) {
+    if (password.length < 8 || password.length > 128) {
       throw new PlatformError(
         400,
-        "DEMO_PASSWORD_REQUIRED",
-        `Use ${DEMO_PASSWORD} for this local demo`,
+        "INVALID_PASSWORD",
+        "Password must be 8–128 characters",
       );
     }
     if (this.#accountsByUsername.has(normalizedUsername)) {
-      throw new PlatformError(409, "USERNAME_TAKEN", "That username is already registered");
+      throw new PlatformError(
+        409,
+        "USERNAME_TAKEN",
+        "That username is already registered",
+      );
     }
-
-    this.#userSequence += 1;
-    const userId = `user-${this.#userSequence}`;
-    const signing = signingIdentity();
-    const salt = randomBytes(16);
-    const account: StoredAccount = {
-      userId,
-      username: normalizedUsername,
-      displayName: normalizedDisplayName,
-      passwordSalt: salt,
-      passwordHash: passwordHash(password, salt),
-      signing,
-      createdAt: this.#now(),
-    };
-    this.#system.registerActor({
-      actorId: userId,
-      signingPublicKey: signing.publicKey,
-    });
-    this.#accountsByUsername.set(normalizedUsername, account);
-    this.#accountsById.set(userId, account);
-    this.#activity.set(userId, [
-      { message: "Account created", at: account.createdAt },
-    ]);
-    return publicAccount(account);
+    return publicAccount(
+      this.#createAccount(normalizedUsername, normalizedDisplayName, password),
+    );
   }
 
   loginUser(input: {
     readonly username: unknown;
     readonly password: unknown;
   }): string {
+    return this.#createSession(this.#authenticateAccount(input).userId);
+  }
+
+  loginAdministrator(input: {
+    readonly username: unknown;
+    readonly password: unknown;
+  }): string {
+    const account = this.#authenticateAccount(input);
+    if (!this.#store.isSystemAdministrator(account.userId)) {
+      throw new PlatformError(401, "LOGIN_FAILED", "Incorrect username or password");
+    }
+    return this.#createSession(account.userId);
+  }
+
+  #authenticateAccount(input: {
+    readonly username: unknown;
+    readonly password: unknown;
+  }): StoredAccount {
     const normalizedUsername = requiredText(input.username, "Username").toLowerCase();
     const password = requiredText(input.password, "Password");
     const account = this.#accountsByUsername.get(normalizedUsername);
@@ -339,120 +525,456 @@ export class InformationFlowPlatform {
     if (!timingSafeEqual(candidate, account.passwordHash)) {
       throw new PlatformError(401, "LOGIN_FAILED", "Incorrect username or password");
     }
-    return this.#createSession({ kind: "user", userId: account.userId });
-  }
-
-  loginManager(input: { readonly password: unknown }): string {
-    if (requiredText(input.password, "Password") !== DEMO_PASSWORD) {
-      throw new PlatformError(401, "LOGIN_FAILED", "Incorrect manager password");
-    }
-    return this.#createSession({ kind: "manager" });
+    return account;
   }
 
   logout(token: string): void {
-    this.#sessions.delete(token);
+    this.#store.deleteSession(sessionTokenHash(token));
   }
 
   session(token: string | null): PlatformDashboard["account"] | null {
     if (token === null) return null;
-    const principal = this.#sessions.get(token);
-    if (principal === undefined) return null;
-    if (principal.kind === "manager") {
-      return { kind: "manager", username: MANAGER_USERNAME, displayName: "Manager" };
-    }
-    const account = this.#requireAccountById(principal.userId);
+    const userId = this.#store.sessionUserId(
+      sessionTokenHash(token),
+      this.#now(),
+    );
+    if (userId === null) return null;
+    const account = this.#requireAccountById(userId);
     return {
       kind: "user",
       username: account.username,
       displayName: account.displayName,
+      isAdministrator: this.#store.isSystemAdministrator(account.userId),
+      specialRoles: this.#store.listSpecialRoles(account.userId),
     };
   }
 
-  configure(
+  requestOrganization(
     token: string,
-    input: { readonly merchantUsername: unknown; readonly regulatorUsername: unknown },
+    input: { readonly organizationId: unknown; readonly name: unknown },
   ): PlatformDashboard {
-    this.#requireManager(token);
-    if (this.#configured) {
-      throw new PlatformError(409, "ALREADY_CONFIGURED", "The H1 workspace is already configured");
-    }
-    const merchant = this.#requireAccountByUsername(input.merchantUsername);
-    const regulator = this.#requireAccountByUsername(input.regulatorUsername);
-    if (merchant.userId === regulator.userId) {
+    const account = this.#requireUser(token);
+    if (this.#store.isSystemAdministrator(account.userId)) {
       throw new PlatformError(
-        400,
-        "ACCOUNTS_MUST_DIFFER",
-        "Choose different accounts for Acme operations and case review",
+        403,
+        "ADMIN_ACCOUNT_RESTRICTED",
+        "The system administrator cannot request an organization",
       );
     }
-
-    this.#system.registerOrganization({
-      organizationId: ORGANIZATION_ID,
-      name: ORGANIZATION_NAME,
-      registeredBy: merchant.userId,
+    const organizationId = resourceId(input.organizationId, "Organization ID");
+    if (
+      this.#store.getOrganization(organizationId) !== null ||
+      this.#store
+        .listPendingOrganizationRequests()
+        .some((request) => request.proposedOrganizationId === organizationId)
+    ) {
+      throw new PlatformError(
+        409,
+        "ORGANIZATION_EXISTS",
+        "That organization ID already exists or awaits approval",
+      );
+    }
+    this.#store.createOrganizationRequest({
+      requestId: `org-request-${randomUUID()}`,
+      requesterUserId: account.userId,
+      proposedOrganizationId: organizationId,
+      proposedName: requiredText(input.name, "Organization name"),
+      submittedAt: this.#now(),
     });
+    return this.dashboard(token);
+  }
+
+  decideOrganizationRequest(
+    token: string,
+    input: {
+      readonly requestId: unknown;
+      readonly decision: unknown;
+      readonly note?: unknown;
+    },
+  ): PlatformDashboard {
+    const administrator = this.#requireUser(token);
+    this.#policy.requireSystemAdministrator(administrator.userId);
+    const requestId = requiredText(input.requestId, "Organization request");
+    const request = this.#store.getOrganizationRequest(requestId);
+    if (request === null) {
+      throw new PlatformError(404, "REQUEST_NOT_FOUND", "Organization request not found");
+    }
+    if (request.status !== "pending") {
+      throw new PlatformError(409, "REQUEST_DECIDED", "This request already has a decision");
+    }
+    const approved = approvalDecision(input.decision);
+    if (
+      approved &&
+      this.#store.getOrganization(request.proposedOrganizationId) !== null
+    ) {
+      throw new PlatformError(409, "ORGANIZATION_EXISTS", "That organization ID already exists");
+    }
+    const decided = this.#store.decideOrganizationRequest({
+      requestId,
+      administratorUserId: administrator.userId,
+      approved,
+      decisionNote: optionalText(input.note, "Decision note"),
+      reviewedAt: this.#now(),
+    });
+    if (approved) {
+      this.#system.registerOrganization({
+        organizationId: decided.proposedOrganizationId,
+        name: decided.proposedName,
+        registeredBy: decided.requesterUserId,
+      });
+    }
+    return this.dashboard(token);
+  }
+
+  requestMembership(
+    token: string,
+    input: { readonly organizationId: unknown },
+  ): PlatformDashboard {
+    const account = this.#requireUser(token);
+    if (this.#store.isSystemAdministrator(account.userId)) {
+      throw new PlatformError(
+        403,
+        "ADMIN_ACCOUNT_RESTRICTED",
+        "The system administrator cannot join an organization",
+      );
+    }
+    const organizationId = resourceId(input.organizationId, "Organization ID");
+    const organization = this.#store.getOrganization(organizationId);
+    if (organization === null) {
+      throw new PlatformError(404, "ORGANIZATION_NOT_FOUND", "Organization not found");
+    }
+    if (this.#store.isOrganizationMember(account.userId, organizationId)) {
+      throw new PlatformError(409, "ALREADY_MEMBER", "You already belong to this organization");
+    }
+    if (
+      this.#store
+        .listMembershipRequestsForUser(account.userId)
+        .some(
+          (request) =>
+            request.organizationId === organizationId && request.status === "pending",
+        )
+    ) {
+      throw new PlatformError(409, "REQUEST_PENDING", "A membership request is already pending");
+    }
+    this.#store.createMembershipRequest({
+      requestId: `membership-request-${randomUUID()}`,
+      organizationId,
+      requesterUserId: account.userId,
+      submittedAt: this.#now(),
+    });
+    return this.dashboard(token);
+  }
+
+  decideMembershipRequest(
+    token: string,
+    input: {
+      readonly requestId: unknown;
+      readonly decision: unknown;
+      readonly note?: unknown;
+    },
+  ): PlatformDashboard {
+    const creator = this.#requireUser(token);
+    const requestId = requiredText(input.requestId, "Membership request");
+    const request = this.#store.getMembershipRequest(requestId);
+    if (request === null) {
+      throw new PlatformError(404, "REQUEST_NOT_FOUND", "Membership request not found");
+    }
+    this.#policy.requireOrganizationCreator(
+      creator.userId,
+      request.organizationId,
+    );
+    if (request.status !== "pending") {
+      throw new PlatformError(409, "REQUEST_DECIDED", "This request already has a decision");
+    }
+    this.#store.decideMembershipRequest({
+      requestId,
+      reviewerUserId: creator.userId,
+      approved: approvalDecision(input.decision),
+      decisionNote: optionalText(input.note, "Decision note"),
+      reviewedAt: this.#now(),
+    });
+    return this.dashboard(token);
+  }
+
+  requestSpecialRole(
+    token: string,
+    input: { readonly role: unknown; readonly justification: unknown },
+  ): PlatformDashboard {
+    const account = this.#requireUser(token);
+    if (this.#store.isSystemAdministrator(account.userId)) {
+      throw new PlatformError(
+        403,
+        "ADMIN_ACCOUNT_RESTRICTED",
+        "The system administrator does not apply for user roles",
+      );
+    }
+    const role = specialRole(input.role);
+    if (this.#store.hasSpecialRole(account.userId, role)) {
+      throw new PlatformError(409, "ROLE_ALREADY_GRANTED", `You are already a ${role}`);
+    }
+    if (
+      this.#store
+        .listSpecialRoleRequestsForUser(account.userId)
+        .some((request) => request.role === role && request.status === "pending")
+    ) {
+      throw new PlatformError(409, "REQUEST_PENDING", "A role application is already pending");
+    }
+    this.#store.createSpecialRoleRequest({
+      requestId: `role-request-${randomUUID()}`,
+      requesterUserId: account.userId,
+      role,
+      justification: requiredText(input.justification, "Justification"),
+      submittedAt: this.#now(),
+    });
+    return this.dashboard(token);
+  }
+
+  decideSpecialRoleRequest(
+    token: string,
+    input: {
+      readonly requestId: unknown;
+      readonly decision: unknown;
+      readonly note?: unknown;
+    },
+  ): PlatformDashboard {
+    const administrator = this.#requireUser(token);
+    this.#policy.requireSystemAdministrator(administrator.userId);
+    const requestId = requiredText(input.requestId, "Role request");
+    const request = this.#store.getSpecialRoleRequest(requestId);
+    if (request === null) {
+      throw new PlatformError(404, "REQUEST_NOT_FOUND", "Role request not found");
+    }
+    if (request.status !== "pending") {
+      throw new PlatformError(409, "REQUEST_DECIDED", "This request already has a decision");
+    }
+    this.#store.decideSpecialRoleRequest({
+      requestId,
+      administratorUserId: administrator.userId,
+      approved: approvalDecision(input.decision),
+      decisionNote: optionalText(input.note, "Decision note"),
+      reviewedAt: this.#now(),
+    });
+    return this.dashboard(token);
+  }
+
+  createProduct(
+    token: string,
+    input: {
+      readonly organizationId: unknown;
+      readonly productId: unknown;
+      readonly name: unknown;
+    },
+  ): PlatformDashboard {
+    const account = this.#requireUser(token);
+    const organizationId = resourceId(input.organizationId, "Organization ID");
+    this.#policy.requireOrganizationControl(account.userId, organizationId);
+    const productId = resourceId(input.productId, "Product ID");
+    if (this.#store.getProduct(productId) !== null) {
+      throw new PlatformError(409, "PRODUCT_EXISTS", "That product ID already exists");
+    }
+    const product = {
+      productId,
+      organizationId,
+      name: requiredText(input.name, "Product name"),
+      createdByUserId: account.userId,
+      createdAt: this.#now(),
+    };
+    this.#store.createProduct(product);
     this.#system.registerProduct({
-      productId: PRODUCT_ID,
-      name: PRODUCT_NAME,
-      organizationId: ORGANIZATION_ID,
-      registeredBy: merchant.userId,
+      productId,
+      name: product.name,
+      organizationId,
+      registeredBy: account.userId,
     });
+    const storedProduct = this.#store.getProduct(productId)!;
+    this.#createAuthorityGrant(
+      account,
+      account,
+      storedProduct,
+      "issue-purchase-credential",
+      null,
+    );
+    this.#createAuthorityGrant(
+      account,
+      account,
+      storedProduct,
+      "handle-support-cases",
+      null,
+    );
+    return this.dashboard(token);
+  }
 
+  grantAuthority(
+    token: string,
+    input: {
+      readonly productId: unknown;
+      readonly granteeUsername: unknown;
+      readonly capability: unknown;
+      readonly expiresAt?: unknown;
+    },
+  ): PlatformDashboard {
+    const controller = this.#requireUser(token);
+    const productId = resourceId(input.productId, "Product ID");
+    const product = this.#policy.requireProductControl(controller.userId, productId);
+    const grantee = this.#requireAccountByUsername(input.granteeUsername);
+    this.#policy.requireOrganizationMembership(
+      grantee.userId,
+      product.organizationId,
+    );
+    const capability = grantCapability(input.capability);
     const issuedAt = this.#now();
-    const issuerGrant = {
-      grantId: "grant-h1-sales",
+    const expiresAt = optionalFutureTimestamp(input.expiresAt, issuedAt);
+    this.#createAuthorityGrant(
+      controller,
+      grantee,
+      product,
+      capability,
+      expiresAt,
+      issuedAt,
+    );
+    return this.dashboard(token);
+  }
+
+  #createAuthorityGrant(
+    controller: StoredAccount,
+    grantee: StoredAccount,
+    product: ProductRecord,
+    capability: GrantCapability,
+    expiresAt: string | null,
+    issuedAt = this.#now(),
+  ): void {
+    const unsigned = {
+      grantId: `grant-${randomUUID()}`,
       authorityId: "platform-authority",
-      granteeId: merchant.userId,
-      capability: "issue-purchase-credential",
-      scopeId: PRODUCT_ID,
+      granteeId: grantee.userId,
+      capability,
+      scopeId: product.productId,
       issuedAt,
     } as const satisfies Omit<SignedAuthorityGrant, "signature">;
-    this.#system.grantAuthority({
-      ...issuerGrant,
-      signature: sign(
-        authorityGrantSigningPayload(issuerGrant),
-        this.#authority.privateKey,
-      ),
-    });
-
-    const regulatorGrant = {
-      grantId: "grant-consumer-case-review",
-      authorityId: "platform-authority",
-      granteeId: regulator.userId,
-      capability: "verify-regulatory-evidence",
-      scopeId: REGULATORY_SCOPE,
+    const signature = sign(
+      authorityGrantSigningPayload(unsigned),
+      this.#authority.privateKey,
+    );
+    this.#store.createAuthorityGrant({
+      grantId: unsigned.grantId,
+      organizationId: product.organizationId,
+      productId: product.productId,
+      grantedByUserId: controller.userId,
+      granteeUserId: grantee.userId,
+      capability,
       issuedAt,
-    } as const satisfies Omit<SignedAuthorityGrant, "signature">;
-    this.#system.grantAuthority({
-      ...regulatorGrant,
-      signature: sign(
-        authorityGrantSigningPayload(regulatorGrant),
-        this.#authority.privateKey,
-      ),
+      expiresAt,
+      signature,
     });
+    this.#system.grantAuthority({ ...unsigned, signature });
+  }
 
-    this.#merchantId = merchant.userId;
-    this.#regulatorId = regulator.userId;
-    this.#configured = true;
-    this.#addActivity(merchant.userId, "Acme Audio workspace connected");
-    this.#addActivity(regulator.userId, "Consumer case review access assigned");
+  revokeAuthority(token: string, input: { readonly grantId: unknown }): PlatformDashboard {
+    const controller = this.#requireUser(token);
+    const grantId = requiredText(input.grantId, "Authority grant");
+    this.#policy.requireGrantControl(controller.userId, grantId);
+    if (
+      !this.#store.revokeAuthorityGrant({
+        grantId,
+        revokedByUserId: controller.userId,
+        revokedAt: this.#now(),
+      })
+    ) {
+      throw new PlatformError(409, "GRANT_ALREADY_REVOKED", "Authority grant is already revoked");
+    }
     return this.dashboard(token);
   }
 
   issuePurchase(
     token: string,
-    input: { readonly buyerUsername: unknown; readonly orderId: unknown },
+    input: {
+      readonly productId: unknown;
+      readonly buyerUsername: unknown;
+      readonly orderId: unknown;
+    },
   ): PlatformDashboard {
     const merchant = this.#requireUser(token);
-    if (!this.#configured || merchant.userId !== this.#merchantId) {
-      throw new PlatformError(403, "NOT_AVAILABLE", "Sales tools are not available for this account");
+    const productId = resourceId(input.productId, "Product ID");
+    this.#policy.requireActiveGrant(
+      merchant.userId,
+      "issue-purchase-credential",
+      productId,
+    );
+    const product = this.#store.getProduct(productId);
+    if (product === null) {
+      throw new PlatformError(404, "PRODUCT_NOT_FOUND", "Product not found");
     }
     const buyer = this.#requireAccountByUsername(input.buyerUsername);
-    if (buyer.userId === merchant.userId) {
+    if (
+      buyer.userId === merchant.userId ||
+      this.#store.isSystemAdministrator(buyer.userId)
+    ) {
       throw new PlatformError(400, "INVALID_BUYER", "Choose another registered customer");
     }
+    this.#requireExternalBuyer(buyer, product);
     const orderId = requiredText(input.orderId, "Order number");
-    if ([...this.#purchases.values()].some((purchase) => purchase.orderId === orderId)) {
+    this.#recordPurchase(merchant, buyer, product, orderId);
+    return this.dashboard(token);
+  }
+
+  buyProduct(
+    token: string,
+    input: { readonly productId: unknown },
+  ): PlatformDashboard {
+    const buyer = this.#requireUser(token);
+    if (this.#store.isSystemAdministrator(buyer.userId)) {
+      throw new PlatformError(
+        403,
+        "ORDINARY_ACCOUNT_REQUIRED",
+        "Products can be purchased with an ordinary account",
+      );
+    }
+    const productId = resourceId(input.productId, "Product ID");
+    const product = this.#store.getProduct(productId);
+    if (product === null) {
+      throw new PlatformError(404, "PRODUCT_NOT_FOUND", "Product not found");
+    }
+    this.#requireExternalBuyer(buyer, product);
+    const issuerGrant = this.#store
+      .listActiveAuthorityGrants(this.#now())
+      .filter(
+        (grant) =>
+          grant.capability === "issue-purchase-credential" &&
+          grant.productId === productId &&
+          grant.granteeUserId !== buyer.userId,
+      )
+      .at(-1);
+    let merchant: StoredAccount;
+    if (issuerGrant === undefined) {
+      merchant = this.#requireAccountById(product.createdByUserId);
+      this.#createAuthorityGrant(
+        merchant,
+        merchant,
+        product,
+        "issue-purchase-credential",
+        null,
+      );
+    } else {
+      merchant = this.#requireAccountById(issuerGrant.granteeUserId);
+    }
+    const orderId = `ORD-${randomUUID().slice(0, 8).toUpperCase()}`;
+    this.#recordPurchase(merchant, buyer, product, orderId);
+    return this.dashboard(token);
+  }
+
+  #recordPurchase(
+    merchant: StoredAccount,
+    buyer: StoredAccount,
+    product: ProductRecord,
+    orderId: string,
+  ): void {
+    const productId = product.productId;
+    if (
+      [...this.#purchases.values()].some(
+        (purchase) =>
+          purchase.productId === productId && purchase.orderId === orderId,
+      )
+    ) {
       throw new PlatformError(409, "ORDER_EXISTS", "That order number already exists");
     }
 
@@ -462,7 +984,7 @@ export class InformationFlowPlatform {
     const purchasedAt = this.#now();
     const credential = {
       credentialId,
-      productId: PRODUCT_ID,
+      productId,
       issuerId: merchant.userId,
       holderId: buyer.userId,
       orderId,
@@ -478,6 +1000,8 @@ export class InformationFlowPlatform {
     });
     this.#purchases.set(credentialId, {
       credentialId,
+      productId,
+      organizationId: product.organizationId,
       buyerId: buyer.userId,
       issuerId: merchant.userId,
       orderId,
@@ -487,9 +1011,26 @@ export class InformationFlowPlatform {
       supportCaseId: null,
       regulatoryCaseId: null,
     });
-    this.#addActivity(merchant.userId, `Order ${orderId} issued for ${PRODUCT_NAME}`);
-    this.#addActivity(buyer.userId, `${PRODUCT_NAME} added to your purchases`);
-    return this.dashboard(token);
+    this.#addActivity(merchant.userId, `Order ${orderId} issued for ${product.name}`);
+    this.#addActivity(buyer.userId, `${product.name} added to your purchases`);
+  }
+
+  #requireExternalBuyer(buyer: StoredAccount, product: ProductRecord): void {
+    if (!this.#canPurchaseProduct(buyer, product)) {
+      throw new PlatformError(
+        403,
+        "MERCHANT_ACCOUNT_CANNOT_BUY",
+        "You cannot buy products from your own merchant",
+      );
+    }
+  }
+
+  #canPurchaseProduct(buyer: StoredAccount, product: ProductRecord): boolean {
+    return (
+      !this.#store.isSystemAdministrator(buyer.userId) &&
+      !this.#store.isOrganizationMember(buyer.userId, product.organizationId) &&
+      !this.#store.controlsOrganization(buyer.userId, product.organizationId)
+    );
   }
 
   publishReview(
@@ -519,7 +1060,8 @@ export class InformationFlowPlatform {
     purchase.reviewId = reviewId;
     this.#reviews.set(reviewId, review);
     this.#reviewReaders.set(reviewId, new Set([account.userId]));
-    this.#addActivity(account.userId, `Your ${PRODUCT_NAME} review was published`);
+    const product = this.#store.getProduct(purchase.productId)!;
+    this.#addActivity(account.userId, `Your ${product.name} review was published`);
     return this.dashboard(token);
   }
 
@@ -539,8 +1081,22 @@ export class InformationFlowPlatform {
     if (purchase.supportCaseId !== null) {
       throw new PlatformError(409, "CASE_EXISTS", "A support request already exists for this purchase");
     }
-    if (this.#merchantId === null) {
-      throw new PlatformError(409, "WORKSPACE_NOT_READY", "Acme Audio is not configured yet");
+    const now = this.#now();
+    const supportGrant = this.#store
+      .listAuthorityGrants()
+      .filter(
+        (grant) =>
+          grant.productId === purchase.productId &&
+          grant.capability === "handle-support-cases" &&
+          authorityGrantStatus(grant, now) === "active",
+      )
+      .at(-1);
+    if (supportGrant === undefined) {
+      throw new PlatformError(
+        409,
+        "SUPPORT_HANDLER_UNAVAILABLE",
+        "No active support handler is available for this product",
+      );
     }
     this.#supportSequence += 1;
     const caseId = `CASE-${String(this.#supportSequence).padStart(3, "0")}`;
@@ -549,7 +1105,8 @@ export class InformationFlowPlatform {
       actorId: buyer.userId,
       credentialId: purchase.credentialId,
       holderSecret: purchase.holderSecret,
-      organizationId: ORGANIZATION_ID,
+      organizationId: purchase.organizationId,
+      recipientId: supportGrant.granteeUserId,
       request: "replacement",
       requestedAt: this.#now(),
       policyVersion: "support-policy-1",
@@ -558,15 +1115,16 @@ export class InformationFlowPlatform {
     this.#supportCases.set(caseId, {
       caseId,
       buyerId: buyer.userId,
-      merchantId: this.#merchantId,
+      merchantId: supportGrant.granteeUserId,
       credentialId: purchase.credentialId,
+      productId: purchase.productId,
       view,
       decisionId: null,
       outcome: "pending",
       reason: null,
     });
     this.#addActivity(buyer.userId, `Replacement request ${caseId} submitted`);
-    this.#addActivity(this.#merchantId, `New replacement request ${caseId}`);
+    this.#addActivity(supportGrant.granteeUserId, `New replacement request ${caseId}`);
     return this.dashboard(token);
   }
 
@@ -580,6 +1138,11 @@ export class InformationFlowPlatform {
     if (supportCase === undefined || supportCase.merchantId !== merchant.userId) {
       throw new PlatformError(404, "CASE_NOT_FOUND", "Support request not found");
     }
+    this.#policy.requireActiveGrant(
+      merchant.userId,
+      "handle-support-cases",
+      supportCase.productId,
+    );
     if (supportCase.decisionId !== null) {
       throw new PlatformError(409, "DECISION_EXISTS", "This request already has a decision");
     }
@@ -612,9 +1175,29 @@ export class InformationFlowPlatform {
     return this.dashboard(token);
   }
 
-  escalate(token: string, input: { readonly purchaseId: unknown }): PlatformDashboard {
+  escalate(
+    token: string,
+    input: {
+      readonly purchaseId: unknown;
+      readonly reviewerUsername: unknown;
+      readonly purpose?: unknown;
+    },
+  ): PlatformDashboard {
     const buyer = this.#requireUser(token);
     const purchase = this.#requireOwnedPurchase(buyer.userId, input.purchaseId);
+    const reviewer = this.#requireAccountByUsername(input.reviewerUsername);
+    this.#policy.requireSpecialRole(reviewer.userId, "regulator");
+    if (reviewer.userId === buyer.userId) {
+      throw new PlatformError(
+        400,
+        "INVALID_RECIPIENT",
+        "Choose another account as the independent reviewer",
+      );
+    }
+    const purpose =
+      input.purpose === undefined || input.purpose === ""
+        ? DEFAULT_DISCLOSURE_PURPOSE
+        : requiredText(input.purpose, "Purpose");
     if (purchase.regulatoryCaseId !== null) {
       throw new PlatformError(409, "CASE_EXISTS", "This purchase has already been escalated");
     }
@@ -626,7 +1209,7 @@ export class InformationFlowPlatform {
       );
     }
     const supportCase = this.#supportCases.get(purchase.supportCaseId)!;
-    if (supportCase.decisionId === null || this.#regulatorId === null) {
+    if (supportCase.decisionId === null) {
       throw new PlatformError(409, "EVIDENCE_INCOMPLETE", "A support decision is required first");
     }
 
@@ -637,8 +1220,8 @@ export class InformationFlowPlatform {
       actorId: buyer.userId,
       credentialId: purchase.credentialId,
       holderSecret: purchase.holderSecret,
-      respondentOrganizationId: ORGANIZATION_ID,
-      purpose: REGULATORY_PURPOSE,
+      respondentOrganizationId: purchase.organizationId,
+      purpose,
       openedAt: this.#now(),
     });
     const bridgeId = `bridge-${caseId.toLowerCase()}`;
@@ -652,8 +1235,8 @@ export class InformationFlowPlatform {
       bridgeId,
       caseId,
       authorizerId: buyer.userId,
-      recipientId: this.#regulatorId,
-      purpose: REGULATORY_PURPOSE,
+      recipientId: reviewer.userId,
+      purpose,
       recordIds,
       authorizedAt: this.#now(),
     } as const satisfies Omit<SignedEvidenceBridge, "signature">;
@@ -669,19 +1252,22 @@ export class InformationFlowPlatform {
       caseId,
       bridgeId,
       buyerId: buyer.userId,
-      recipientId: this.#regulatorId,
+      recipientId: reviewer.userId,
       credentialId: purchase.credentialId,
+      productId: purchase.productId,
+      purpose,
       recordIds,
       verified: false,
       result: null,
     });
     this.#addActivity(buyer.userId, `Case ${caseId} submitted for independent review`);
-    this.#addActivity(this.#regulatorId, `New case ${caseId} assigned`);
+    this.#addActivity(reviewer.userId, `New case ${caseId} disclosed to you`);
     return this.dashboard(token);
   }
 
   verifyCase(token: string, input: { readonly caseId: unknown }): PlatformDashboard {
     const reviewer = this.#requireUser(token);
+    this.#policy.requireSpecialRole(reviewer.userId, "regulator");
     const caseId = requiredText(input.caseId, "Case");
     const regulatoryCase = this.#regulatoryCases.get(caseId);
     if (
@@ -695,7 +1281,7 @@ export class InformationFlowPlatform {
         bridgeId: regulatoryCase.bridgeId,
         actorId: reviewer.userId,
         caseId,
-        purpose: REGULATORY_PURPOSE,
+        purpose: regulatoryCase.purpose,
         recordIds: regulatoryCase.recordIds,
       });
       regulatoryCase.verified = true;
@@ -706,54 +1292,119 @@ export class InformationFlowPlatform {
   }
 
   dashboard(token: string): PlatformDashboard {
-    const principal = this.#requireSession(token);
+    const account = this.#requireUser(token);
+    const now = this.#now();
+    const isAdministrator = this.#store.isSystemAdministrator(account.userId);
+    const specialRoles = this.#store.listSpecialRoles(account.userId);
+    const products = this.#store.listProducts();
+    const allOrganizations = this.#store.listOrganizations();
+    const controlledOrganizations = this.#store.listControlledOrganizations(
+      account.userId,
+    );
+    const organizations = controlledOrganizations.map((organization) => ({
+      organizationId: organization.organizationId,
+      name: organization.name,
+      members: this.#store
+        .listOrganizationMembers(organization.organizationId)
+        .map((membership) =>
+          publicAccount(this.#requireAccountById(membership.userId)),
+        ),
+      products: products
+        .filter(
+          (candidate) =>
+            candidate.organizationId === organization.organizationId,
+        )
+        .map(({ productId, name }) => ({ productId, name })),
+    }));
+    const memberships = this.#store
+      .listMembershipsForUser(account.userId)
+      .map(({ organizationId, organizationName, joinedAt }) => ({
+        organizationId,
+        organizationName,
+        joinedAt,
+      }));
+    const membershipOrganizationIds = new Set(
+      memberships.map(({ organizationId }) => organizationId),
+    );
+    const membershipRequests = this.#store
+      .listMembershipRequestsForUser(account.userId)
+      .map((request) => ({
+        requestId: request.requestId,
+        organizationId: request.organizationId,
+        organizationName: request.organizationName,
+        status: request.status,
+        submittedAt: request.submittedAt,
+      }));
+    const pendingMembershipOrganizationIds = new Set(
+      membershipRequests
+        .filter(({ status }) => status === "pending")
+        .map(({ organizationId }) => organizationId),
+    );
+    const ordinaryAccounts = [...this.#accountsById.values()].filter(
+      (candidate) => !this.#store.isSystemAdministrator(candidate.userId),
+    );
+    const issuableProducts = products
+      .filter((candidate) =>
+        this.#policy.hasActiveGrant(
+          account.userId,
+          "issue-purchase-credential",
+          candidate.productId,
+        ),
+      )
+      .map((candidate) => ({
+        productId: candidate.productId,
+        name: candidate.name,
+        organizationName: candidate.organizationName,
+      }));
+    const authorityGrants = this.#store
+      .listAuthorityGrantsForUser(account.userId)
+      .map((grant) => ({
+        grantId: grant.grantId,
+        organizationName: grant.organizationName,
+        productId: grant.productId,
+        productName: grant.productName,
+        granteeUsername: grant.granteeUsername,
+        capability: grant.capability,
+        status: authorityGrantStatus(grant, now),
+        expiresAt: grant.expiresAt,
+        receivedByYou: grant.granteeUserId === account.userId,
+        canRevoke:
+          grant.revokedAt === null &&
+          this.#store.controlsOrganization(
+            account.userId,
+            grant.organizationId,
+          ),
+      }));
     const counts = {
-      registeredUsers: this.#accountsById.size,
+      registeredUsers: this.#store.countOrdinaryAccounts(),
       publicReviews: this.#reviews.size,
       publicCommitments: this.#system.getPublicCommitmentRecords().length,
     };
-    const product = this.#configured
-      ? { id: PRODUCT_ID, name: PRODUCT_NAME, organization: ORGANIZATION_NAME }
-      : null;
-    if (principal.kind === "manager") {
-      return {
-        account: {
-          kind: "manager",
-          username: MANAGER_USERNAME,
-          displayName: "Manager",
-        },
-        product,
-        manager: {
-          users: [...this.#accountsById.values()].map(publicAccount),
-          configured: this.#configured,
-          merchantUsername: this.#usernameFor(this.#merchantId),
-          regulatorUsername: this.#usernameFor(this.#regulatorId),
-        },
-        reviews: this.#publicReviews(null),
-        purchases: [],
-        canIssuePurchases: false,
-        availableBuyers: [],
-        supportInbox: [],
-        assignedCases: [],
-        activity: [],
-        counts,
-      };
-    }
-
-    const account = this.#requireAccountById(principal.userId);
-    const capabilities = this.#system.deriveCapabilities(account.userId);
-    const canIssuePurchases = capabilities.some(
-      ({ action, resourceId }) =>
-        action === "issue-purchase-credential" && resourceId === PRODUCT_ID,
-    );
+    const firstProduct = products[0];
+    const product =
+      firstProduct === undefined
+        ? null
+        : {
+            id: firstProduct.productId,
+            name: firstProduct.name,
+            organization: firstProduct.organizationName,
+          };
     const purchases = [...this.#purchases.values()]
       .filter((purchase) => purchase.buyerId === account.userId)
       .map((purchase) => this.#purchaseCard(purchase));
     const supportInbox = [...this.#supportCases.values()]
-      .filter((supportCase) => supportCase.merchantId === account.userId)
+      .filter(
+        (supportCase) =>
+          supportCase.merchantId === account.userId &&
+          this.#policy.hasActiveGrant(
+            account.userId,
+            "handle-support-cases",
+            supportCase.productId,
+          ),
+      )
       .map((supportCase) => ({
         caseId: supportCase.caseId,
-        productName: PRODUCT_NAME,
+        productName: this.#store.getProduct(supportCase.productId)!.name,
         customerReference: supportCase.view.contextSubjectId.slice(0, 12),
         purchasedWithinThirtyDays:
           supportCase.view.eligibility.purchasedWithinThirtyDays,
@@ -763,11 +1414,15 @@ export class InformationFlowPlatform {
         reason: supportCase.reason,
       }));
     const assignedCases = [...this.#regulatoryCases.values()]
-      .filter((regulatoryCase) => regulatoryCase.recipientId === account.userId)
+      .filter(
+        (regulatoryCase) =>
+          regulatoryCase.recipientId === account.userId &&
+          this.#store.hasSpecialRole(account.userId, "regulator"),
+      )
       .map((regulatoryCase) => ({
         caseId: regulatoryCase.caseId,
-        productName: PRODUCT_NAME,
-        purpose: REGULATORY_PURPOSE,
+        productName: this.#store.getProduct(regulatoryCase.productId)!.name,
+        purpose: regulatoryCase.purpose,
         verified: regulatoryCase.verified,
         result:
           regulatoryCase.result === null
@@ -784,20 +1439,115 @@ export class InformationFlowPlatform {
         kind: "user",
         username: account.username,
         displayName: account.displayName,
+        isAdministrator,
+        specialRoles,
       },
       product,
-      manager: null,
+      organizations,
+      memberships,
+      availableOrganizations: allOrganizations
+        .filter(
+          (organization) =>
+            !membershipOrganizationIds.has(organization.organizationId) &&
+            !pendingMembershipOrganizationIds.has(organization.organizationId),
+        )
+        .map(({ organizationId, name }) => ({ organizationId, name })),
+      organizationRequests: this.#store
+        .listOrganizationRequestsForUser(account.userId)
+        .map((request) => ({
+          requestId: request.requestId,
+          organizationId: request.proposedOrganizationId,
+          name: request.proposedName,
+          status: request.status,
+          submittedAt: request.submittedAt,
+        })),
+      membershipRequests,
+      pendingMembershipApprovals: this.#store
+        .listPendingMembershipRequestsForCreator(account.userId)
+        .map((request) => ({
+          requestId: request.requestId,
+          organizationId: request.organizationId,
+          organizationName: request.organizationName,
+          requesterUsername: request.requesterUsername,
+          requesterDisplayName: request.requesterDisplayName,
+          submittedAt: request.submittedAt,
+        })),
+      specialRoleRequests: this.#store
+        .listSpecialRoleRequestsForUser(account.userId)
+        .map((request) => ({
+          requestId: request.requestId,
+          role: request.role,
+          justification: request.justification,
+          status: request.status,
+          submittedAt: request.submittedAt,
+        })),
+      administratorApprovals: isAdministrator
+        ? {
+            organizationRequests: this.#store
+              .listPendingOrganizationRequests()
+              .map((request) => ({
+                requestId: request.requestId,
+                requesterUsername: request.requesterUsername,
+                organizationId: request.proposedOrganizationId,
+                name: request.proposedName,
+                submittedAt: request.submittedAt,
+              })),
+            specialRoleRequests: this.#store
+              .listPendingSpecialRoleRequests()
+              .map((request) => ({
+                requestId: request.requestId,
+                requesterUsername: request.requesterUsername,
+                requesterDisplayName: request.requesterDisplayName,
+                role: request.role,
+                justification: request.justification,
+                submittedAt: request.submittedAt,
+              })),
+          }
+        : { organizationRequests: [], specialRoleRequests: [] },
+      products: products.map((candidate) => {
+        const canPurchase = this.#canPurchaseProduct(account, candidate);
+        return {
+          productId: candidate.productId,
+          name: candidate.name,
+          organizationId: candidate.organizationId,
+          organizationName: candidate.organizationName,
+          belongsToAccountOrganization:
+            this.#store.isOrganizationMember(
+              account.userId,
+              candidate.organizationId,
+            ) ||
+            this.#store.controlsOrganization(
+              account.userId,
+              candidate.organizationId,
+            ),
+          canPurchase,
+          reviewCount: [...this.#reviews.values()].filter(
+            (review) => review.productId === candidate.productId,
+          ).length,
+        };
+      }),
+      authorityGrants,
+      availableAccounts: ordinaryAccounts
+        .filter((candidate) => candidate.userId !== account.userId)
+        .map(publicAccount),
+      availableRegulators: this.#store
+        .listActiveSpecialRoleUserIds("regulator")
+        .filter((userId) => userId !== account.userId)
+        .map((userId) => publicAccount(this.#requireAccountById(userId))),
+      issuableProducts,
       reviews: this.#publicReviews(account.userId),
       purchases,
-      canIssuePurchases,
-      availableBuyers: canIssuePurchases
-        ? [...this.#accountsById.values()]
+      canIssuePurchases: issuableProducts.length > 0,
+      availableBuyers: issuableProducts.length > 0
+        ? ordinaryAccounts
             .filter((candidate) => candidate.userId !== account.userId)
             .map(publicAccount)
         : [],
       supportInbox,
       assignedCases,
-      activity: [...(this.#activity.get(account.userId) ?? [])].reverse(),
+      activity: this.#store
+        .listInboxEvents(account.userId)
+        .map(({ message, createdAt }) => ({ message, at: createdAt })),
       counts,
     };
   }
@@ -810,7 +1560,112 @@ export class InformationFlowPlatform {
     return this.#system.auditCommitments();
   }
 
+  publicReviews(): PlatformDashboard["reviews"] {
+    return this.#publicReviews(null);
+  }
+
+  #createAccount(
+    normalizedUsername: string,
+    normalizedDisplayName: string,
+    password: string,
+  ): StoredAccount {
+    const userId = `user-${randomUUID()}`;
+    const signing = signingIdentity();
+    const salt = randomBytes(16);
+    const account: StoredAccount = {
+      userId,
+      username: normalizedUsername,
+      displayName: normalizedDisplayName,
+      passwordSalt: salt,
+      passwordHash: passwordHash(password, salt),
+      signing,
+      createdAt: this.#now(),
+    };
+    this.#store.createAccount(account);
+    this.#system.registerActor({
+      actorId: userId,
+      signingPublicKey: signing.publicKey,
+    });
+    this.#accountsByUsername.set(normalizedUsername, account);
+    this.#accountsById.set(userId, account);
+    return account;
+  }
+
+  #ensureBootstrapAdministrator(input: {
+    readonly username: string;
+    readonly displayName?: string;
+    readonly password: string;
+  }): void {
+    const normalizedUsername = username(input.username);
+    const normalizedDisplayName = displayName(
+      input.displayName,
+      DEFAULT_ADMIN_DISPLAY_NAME,
+    );
+    const password = requiredText(input.password, "Administrator password");
+    if (password.length < 8 || password.length > 128) {
+      throw new Error("Administrator password must be 8–128 characters");
+    }
+    const existing = this.#accountsByUsername.get(normalizedUsername);
+    const administratorIds = this.#store.listSystemAdministratorIds();
+    if (existing !== undefined && !this.#store.isSystemAdministrator(existing.userId)) {
+      throw new Error(
+        `The bootstrap administrator username ${normalizedUsername} belongs to an ordinary account`,
+      );
+    }
+    const administrator =
+      existing ??
+      (administratorIds.length === 1
+        ? this.#accountsById.get(administratorIds[0]!)
+        : undefined);
+    if (administrator !== undefined) {
+      if (!this.#store.isSystemAdministrator(administrator.userId)) {
+        throw new Error(
+          `The bootstrap administrator username ${normalizedUsername} belongs to an ordinary account`,
+        );
+      }
+      const candidate = passwordHash(password, administrator.passwordSalt);
+      if (
+        administrator.username !== normalizedUsername ||
+        administrator.displayName !== normalizedDisplayName ||
+        !timingSafeEqual(candidate, administrator.passwordHash)
+      ) {
+        const salt = randomBytes(16);
+        const updated: StoredAccount = {
+          ...administrator,
+          username: normalizedUsername,
+          displayName: normalizedDisplayName,
+          passwordSalt: salt,
+          passwordHash: passwordHash(password, salt),
+        };
+        this.#store.updateAccountCredentials({
+          userId: updated.userId,
+          username: updated.username,
+          displayName: updated.displayName,
+          passwordSalt: updated.passwordSalt,
+          passwordHash: updated.passwordHash,
+          updatedAt: this.#now(),
+        });
+        this.#accountsByUsername.delete(administrator.username);
+        this.#accountsByUsername.set(updated.username, updated);
+        this.#accountsById.set(updated.userId, updated);
+      }
+      return;
+    }
+    if (administratorIds.length > 1) {
+      throw new Error(
+        "A bootstrap administrator cannot be selected because multiple administrator records exist",
+      );
+    }
+    const createdAdministrator = this.#createAccount(
+      normalizedUsername,
+      normalizedDisplayName,
+      password,
+    );
+    this.#store.appointSystemAdministrator(createdAdministrator.userId, this.#now());
+  }
+
   #purchaseCard(purchase: StoredPurchase): PlatformDashboard["purchases"][number] {
+    const product = this.#store.getProduct(purchase.productId)!;
     const support =
       purchase.supportCaseId === null
         ? null
@@ -821,7 +1676,7 @@ export class InformationFlowPlatform {
         : this.#regulatoryCases.get(purchase.regulatoryCaseId)!;
     return {
       purchaseId: purchase.credentialId,
-      productName: PRODUCT_NAME,
+      productName: product.name,
       orderId: purchase.orderId,
       purchasedAt: purchase.purchasedAt,
       canReview: purchase.reviewId === null,
@@ -850,7 +1705,8 @@ export class InformationFlowPlatform {
   #publicReviews(userId: string | null): PlatformDashboard["reviews"] {
     return [...this.#reviews.values()].map((review) => ({
       reviewId: review.reviewId,
-      productName: PRODUCT_NAME,
+      productId: review.productId,
+      productName: this.#store.getProduct(review.productId)?.name ?? review.productId,
       rating: review.rating,
       text: review.text,
       verifiedPurchase: review.verifiedPurchase,
@@ -861,32 +1717,31 @@ export class InformationFlowPlatform {
     }));
   }
 
-  #createSession(principal: SessionPrincipal): string {
+  #createSession(userId: string): string {
     const token = randomBytes(32).toString("base64url");
-    this.#sessions.set(token, principal);
+    const createdAt = this.#clock();
+    this.#store.createSession({
+      tokenHash: sessionTokenHash(token),
+      userId,
+      createdAt: createdAt.toISOString(),
+      expiresAt: new Date(createdAt.getTime() + this.#sessionTtlMs).toISOString(),
+    });
     return token;
   }
 
-  #requireSession(token: string): SessionPrincipal {
-    const principal = this.#sessions.get(token);
-    if (principal === undefined) {
+  #requireSession(token: string): string {
+    const userId = this.#store.sessionUserId(
+      sessionTokenHash(token),
+      this.#now(),
+    );
+    if (userId === null) {
       throw new PlatformError(401, "AUTH_REQUIRED", "Please log in to continue");
     }
-    return principal;
-  }
-
-  #requireManager(token: string): void {
-    if (this.#requireSession(token).kind !== "manager") {
-      throw new PlatformError(403, "MANAGER_REQUIRED", "Manager access required");
-    }
+    return userId;
   }
 
   #requireUser(token: string): StoredAccount {
-    const principal = this.#requireSession(token);
-    if (principal.kind !== "user") {
-      throw new PlatformError(403, "USER_REQUIRED", "Sign in with a user account");
-    }
-    return this.#requireAccountById(principal.userId);
+    return this.#requireAccountById(this.#requireSession(token));
   }
 
   #requireAccountByUsername(value: unknown): StoredAccount {
@@ -915,15 +1770,76 @@ export class InformationFlowPlatform {
     return purchase;
   }
 
-  #usernameFor(userId: string | null): string | null {
-    if (userId === null) return null;
-    return this.#accountsById.get(userId)?.username ?? null;
+  #addActivity(userId: string, message: string): void {
+    this.#store.addInboxEvent({
+      userId,
+      eventType: "activity",
+      message,
+      resourceType: null,
+      resourceId: null,
+      createdAt: this.#now(),
+    });
   }
 
-  #addActivity(userId: string, message: string): void {
-    const entries = this.#activity.get(userId) ?? [];
-    entries.push({ message, at: this.#now() });
-    this.#activity.set(userId, entries);
+  #hydrateFoundation(): void {
+    for (const account of this.#store.listAccounts()) {
+      this.#accountsByUsername.set(account.username, account);
+      this.#accountsById.set(account.userId, account);
+      this.#system.registerActor({
+        actorId: account.userId,
+        signingPublicKey: account.signing.publicKey,
+      });
+    }
+    for (const organization of this.#store.listOrganizations()) {
+      this.#system.registerOrganization({
+        organizationId: organization.organizationId,
+        name: organization.name,
+        registeredBy: organization.createdByUserId,
+      });
+    }
+    for (const product of this.#store.listProducts()) {
+      this.#system.registerProduct({
+        productId: product.productId,
+        name: product.name,
+        organizationId: product.organizationId,
+        registeredBy: product.createdByUserId,
+      });
+    }
+    for (const grant of this.#store.listActiveAuthorityGrants(this.#now())) {
+      this.#system.grantAuthority({
+        grantId: grant.grantId,
+        authorityId: "platform-authority",
+        granteeId: grant.granteeUserId,
+        capability: grant.capability,
+        scopeId: grant.productId,
+        issuedAt: grant.issuedAt,
+        signature: grant.signature,
+      });
+    }
+    const recordedGrants = this.#store.listAuthorityGrants();
+    for (const product of this.#store.listProducts()) {
+      const owner = this.#requireAccountById(product.createdByUserId);
+      for (const capability of [
+        "issue-purchase-credential",
+        "handle-support-cases",
+      ] as const satisfies readonly GrantCapability[]) {
+        const ownerGrantAlreadyRecorded = recordedGrants.some(
+          (grant) =>
+            grant.productId === product.productId &&
+            grant.granteeUserId === owner.userId &&
+            grant.capability === capability,
+        );
+        if (!ownerGrantAlreadyRecorded) {
+          this.#createAuthorityGrant(
+            owner,
+            owner,
+            product,
+            capability,
+            null,
+          );
+        }
+      }
+    }
   }
 
   #now(): string {
