@@ -1,6 +1,6 @@
 # Information Flow
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/OWNER/REPO)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/PHTPSN/information-flow)
 
 > Privacy-preserving verified reviews and dispute resolution on Midnight.
 
