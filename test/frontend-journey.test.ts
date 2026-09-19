@@ -113,6 +113,9 @@ describe("registered-user browser journey", () => {
     assert.match(html, /Log in to your account/);
     assert.match(html, /Create your account/);
     assert.match(html, /Administrator login/);
+    assert.match(html, /One account for comments and support/);
+    assert.doesNotMatch(html, /id="public-reviews"/);
+    assert.doesNotMatch(html, /Verified reviews/);
     assert.match(html, /New administrator registration is[\s\S]*?not currently available/);
     assert.doesNotMatch(html, /manager|12345678/i);
     assert.match(html, /name="username"/);
@@ -133,13 +136,21 @@ describe("registered-user browser journey", () => {
     assert.match(html, /data-tab="activity"/);
     assert.match(html, /id="review-view"/);
     assert.match(html, /← Back to shop/);
+    assert.match(html, /Product comments/);
     assert.match(html, /Account &amp; merchant tools/);
     assert.match(appScript, /\/api\/actions\/buy-product/);
     assert.match(appScript, /product\.belongsToAccountOrganization/);
     assert.match(appScript, /\? "Your merchant"/);
-    assert.match(appScript, /buyButton\.disabled = !product\.canPurchase/);
+    assert.match(
+      appScript,
+      /product\.availableForPurchase \?\? product\.canPurchase \?\? false/,
+    );
+    assert.match(appScript, /buyButton\.disabled = !hasPurchasePermission/);
     assert.doesNotMatch(appScript, /Unavailable/);
     assert.match(appScript, /showProductReviews/);
+    assert.match(appScript, /Read comments/);
+    assert.match(appScript, /Publish comment/);
+    assert.match(appScript, /Send for review/);
     assert.match(
       styles,
       /button:disabled[\s\S]*?cursor: not-allowed/,
@@ -323,12 +334,12 @@ describe("registered-user browser journey", () => {
     });
     assert.equal(bobDashboard.organizations[0]?.products[0]?.productId, "H1");
     assert.equal(bobDashboard.products[0]?.belongsToAccountOrganization, true);
-    assert.equal(bobDashboard.products[0]?.canPurchase, false);
+    assert.equal(bobDashboard.products[0]?.availableForPurchase, false);
     assert.equal(bobDashboard.authorityGrants.length, 2);
     assert.equal(bobDashboard.canIssuePurchases, true);
     const immediatelyAvailableProduct = await alice.dashboard();
     assert.equal(
-      immediatelyAvailableProduct.products[0]?.canPurchase,
+      immediatelyAvailableProduct.products[0]?.availableForPurchase,
       true,
     );
 
@@ -344,7 +355,7 @@ describe("registered-user browser journey", () => {
     });
     const davidCatalogWithoutActiveIssuer = await david.dashboard();
     assert.equal(
-      davidCatalogWithoutActiveIssuer.products[0]?.canPurchase,
+      davidCatalogWithoutActiveIssuer.products[0]?.availableForPurchase,
       true,
     );
     const davidPurchaseWithoutActiveIssuer = await david.action(
@@ -412,7 +423,7 @@ describe("registered-user browser journey", () => {
     assert.equal(bobDashboard.authorityGrants.length, 5);
     claraDashboard = await clara.dashboard();
     assert.equal(claraDashboard.products[0]?.belongsToAccountOrganization, true);
-    assert.equal(claraDashboard.products[0]?.canPurchase, false);
+    assert.equal(claraDashboard.products[0]?.availableForPurchase, false);
 
     for (const merchantAccount of [bob, clara]) {
       const ownMerchantPurchase = await merchantAccount.request<{ code: string }>(
@@ -479,7 +490,7 @@ describe("registered-user browser journey", () => {
     assert.equal((await david.dashboard()).canIssuePurchases, false);
     const aliceCatalog = await alice.dashboard();
     assert.equal(aliceCatalog.products[0]?.belongsToAccountOrganization, false);
-    assert.equal(aliceCatalog.products[0]?.canPurchase, true);
+    assert.equal(aliceCatalog.products[0]?.availableForPurchase, true);
 
     let aliceDashboard = await alice.action("/api/actions/buy-product", {
       productId: "H1",
@@ -590,6 +601,58 @@ describe("registered-user browser journey", () => {
       reviewIntegrity: true,
       supportDecisionIntegrity: true,
     });
+
+    aliceDashboard = await alice.action("/api/actions/buy-product", {
+      productId: "H1",
+    });
+    const purchaseWithoutReview = aliceDashboard.purchases.find(
+      (purchase) => purchase.reviewId === null && purchase.support === null,
+    );
+    assert.ok(purchaseWithoutReview);
+
+    aliceDashboard = await alice.action("/api/actions/request-support", {
+      purchaseId: purchaseWithoutReview.purchaseId,
+    });
+    claraDashboard = await clara.action("/api/actions/decide-support", {
+      caseId: "CASE-002",
+      outcome: "rejected",
+      reason: "The merchant declined the second replacement request.",
+    });
+    assert.equal(claraDashboard.supportInbox.length, 2);
+
+    aliceDashboard = await alice.dashboard();
+    const rejectedPurchaseWithoutReview = aliceDashboard.purchases.find(
+      (purchase) => purchase.purchaseId === purchaseWithoutReview.purchaseId,
+    );
+    assert.ok(rejectedPurchaseWithoutReview);
+    assert.equal(rejectedPurchaseWithoutReview.reviewId, null);
+    assert.equal(rejectedPurchaseWithoutReview.support?.outcome, "rejected");
+    assert.equal(rejectedPurchaseWithoutReview.canEscalate, true);
+
+    aliceDashboard = await alice.action("/api/actions/escalate", {
+      purchaseId: purchaseWithoutReview.purchaseId,
+      reviewerUsername: "david",
+      purpose: "Investigate the rejected replacement request",
+    });
+    assert.equal(
+      aliceDashboard.purchases.find(
+        (purchase) => purchase.purchaseId === purchaseWithoutReview.purchaseId,
+      )?.regulatoryCase?.caseId,
+      "REG-002",
+    );
+
+    davidDashboard = await david.action("/api/actions/verify-case", {
+      caseId: "REG-002",
+    });
+    assert.deepEqual(
+      davidDashboard.assignedCases.find(({ caseId }) => caseId === "REG-002")
+        ?.result,
+      {
+        samePurchase: true,
+        reviewIntegrity: null,
+        supportDecisionIntegrity: true,
+      },
+    );
 
     const claraPrivateCaseAttempt = await clara.request<{ code: string }>(
       "/api/actions/verify-case",

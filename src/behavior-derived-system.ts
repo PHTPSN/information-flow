@@ -190,7 +190,7 @@ export interface EvidenceVerificationResult {
   readonly productId: string;
   readonly sameCredentialHolder: true;
   readonly samePurchaseTransaction: true;
-  readonly reviewIntegrityVerified: true;
+  readonly reviewIntegrityVerified: true | null;
   readonly supportDecisionIntegrityVerified: true;
   readonly commitment: string;
 }
@@ -1298,6 +1298,9 @@ export class BehaviorDerivedInformationFlowSystem {
     enforce(this.canVerifyEvidenceBridge(request));
     const bridge = this.#bridges.get(request.bridgeId)!;
     const regulatoryCase = this.#requireRegulatoryCase(bridge.caseId);
+    const review = [...this.#reviewCredentialIds.entries()].find(
+      ([, credentialId]) => credentialId === regulatoryCase.input.credentialId,
+    );
     const action = this.#actions.get(bridge.bridgeId)!;
     this.#events.push({
       type: "EvidenceVerified",
@@ -1311,7 +1314,7 @@ export class BehaviorDerivedInformationFlowSystem {
       productId: regulatoryCase.productId,
       sameCredentialHolder: true,
       samePurchaseTransaction: true,
-      reviewIntegrityVerified: true,
+      reviewIntegrityVerified: review === undefined ? null : true,
       supportDecisionIntegrityVerified: true,
       commitment: action.commitment,
     };
@@ -1532,7 +1535,7 @@ export class BehaviorDerivedInformationFlowSystem {
     const expected = sortedUnique(
       [
         credentialId,
-        review?.[0] ?? "missing-review",
+        ...(review === undefined ? [] : [review[0]]),
         supportCase?.input.caseId ?? "missing-support-case",
         supportDecision?.decisionId ?? "missing-support-decision",
       ],
@@ -1541,7 +1544,7 @@ export class BehaviorDerivedInformationFlowSystem {
     if (!sameStrings(expected, [...recordIds].sort())) {
       throw new PolicyDeniedError(
         "RECORD_SET_MISMATCH",
-        `${regulatoryCase.input.caseId} requires the selected purchase, review, support case, and signed decision`,
+        `${regulatoryCase.input.caseId} requires the selected purchase, support case, signed decision, and any published review`,
       );
     }
   }

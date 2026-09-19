@@ -181,7 +181,7 @@ export interface PlatformDashboard {
     readonly organizationId: string;
     readonly organizationName: string;
     readonly belongsToAccountOrganization: boolean;
-    readonly canPurchase: boolean;
+    readonly availableForPurchase: boolean;
     readonly reviewCount: number;
   }[];
   readonly authorityGrants: readonly {
@@ -250,7 +250,7 @@ export interface PlatformDashboard {
     readonly verified: boolean;
     readonly result: {
       readonly samePurchase: boolean;
-      readonly reviewIntegrity: boolean;
+      readonly reviewIntegrity: boolean | null;
       readonly supportDecisionIntegrity: boolean;
     } | null;
   }[];
@@ -1040,7 +1040,7 @@ export class InformationFlowPlatform {
     const account = this.#requireUser(token);
     const purchase = this.#requireOwnedPurchase(account.userId, input.purchaseId);
     if (purchase.reviewId !== null) {
-      throw new PlatformError(409, "REVIEW_EXISTS", "This purchase already has a review");
+      throw new PlatformError(409, "REVIEW_EXISTS", "This purchase already has a comment");
     }
     const rating = Number(input.rating);
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
@@ -1054,20 +1054,20 @@ export class InformationFlowPlatform {
       credentialId: purchase.credentialId,
       holderSecret: purchase.holderSecret,
       rating,
-      text: requiredText(input.text, "Review"),
+      text: requiredText(input.text, "Comment"),
       publishedAt: this.#now(),
     });
     purchase.reviewId = reviewId;
     this.#reviews.set(reviewId, review);
     this.#reviewReaders.set(reviewId, new Set([account.userId]));
     const product = this.#store.getProduct(purchase.productId)!;
-    this.#addActivity(account.userId, `Your ${product.name} review was published`);
+    this.#addActivity(account.userId, `Your ${product.name} comment was published`);
     return this.dashboard(token);
   }
 
   openReview(token: string, input: { readonly reviewId: unknown }): PlatformDashboard {
     const account = this.#requireUser(token);
-    const reviewId = requiredText(input.reviewId, "Review");
+    const reviewId = requiredText(input.reviewId, "Comment");
     this.#system.readPublicReview(account.userId, reviewId);
     const readers = this.#reviewReaders.get(reviewId) ?? new Set<string>();
     readers.add(account.userId);
@@ -1201,16 +1201,23 @@ export class InformationFlowPlatform {
     if (purchase.regulatoryCaseId !== null) {
       throw new PlatformError(409, "CASE_EXISTS", "This purchase has already been escalated");
     }
-    if (purchase.reviewId === null || purchase.supportCaseId === null) {
+    if (purchase.supportCaseId === null) {
       throw new PlatformError(
         409,
         "EVIDENCE_INCOMPLETE",
-        "Publish a review and complete support before escalating",
+        "Complete a replacement request before sending it for review",
       );
     }
     const supportCase = this.#supportCases.get(purchase.supportCaseId)!;
     if (supportCase.decisionId === null) {
       throw new PlatformError(409, "EVIDENCE_INCOMPLETE", "A support decision is required first");
+    }
+    if (supportCase.outcome !== "rejected") {
+      throw new PlatformError(
+        409,
+        "SUPPORT_NOT_REJECTED",
+        "Only a rejected replacement request can be sent for review",
+      );
     }
 
     this.#regulatorySequence += 1;
@@ -1227,7 +1234,7 @@ export class InformationFlowPlatform {
     const bridgeId = `bridge-${caseId.toLowerCase()}`;
     const recordIds = [
       purchase.credentialId,
-      purchase.reviewId,
+      ...(purchase.reviewId === null ? [] : [purchase.reviewId]),
       supportCase.caseId,
       supportCase.decisionId,
     ];
@@ -1505,7 +1512,7 @@ export class InformationFlowPlatform {
           }
         : { organizationRequests: [], specialRoleRequests: [] },
       products: products.map((candidate) => {
-        const canPurchase = this.#canPurchaseProduct(account, candidate);
+        const availableForPurchase = this.#canPurchaseProduct(account, candidate);
         return {
           productId: candidate.productId,
           name: candidate.name,
@@ -1520,7 +1527,7 @@ export class InformationFlowPlatform {
               account.userId,
               candidate.organizationId,
             ),
-          canPurchase,
+          availableForPurchase,
           reviewCount: [...this.#reviews.values()].filter(
             (review) => review.productId === candidate.productId,
           ).length,
@@ -1682,8 +1689,7 @@ export class InformationFlowPlatform {
       canReview: purchase.reviewId === null,
       canRequestSupport: purchase.supportCaseId === null,
       canEscalate:
-        purchase.reviewId !== null &&
-        support !== null &&
+        support?.outcome === "rejected" &&
         support.decisionId !== null &&
         purchase.regulatoryCaseId === null,
       reviewId: purchase.reviewId,

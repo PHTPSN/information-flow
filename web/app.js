@@ -14,7 +14,6 @@ const elements = {
   registerForm: document.querySelector("#register-form"),
   administratorLoginForm: document.querySelector("#administrator-login-form"),
   registerSuccess: document.querySelector("#register-success"),
-  publicReviews: document.querySelector("#public-reviews"),
   logout: document.querySelector("#logout"),
   workspaceTabs: [...document.querySelectorAll("[data-tab]")],
   shopPanel: document.querySelector("#shop-panel"),
@@ -176,7 +175,7 @@ function showProductReviews(productId) {
   elements.shopPanel.hidden = true;
   elements.accountPanel.hidden = true;
   elements.activityPanel.hidden = true;
-  elements.reviewViewTitle.textContent = `${product?.name ?? "Product"} reviews`;
+  elements.reviewViewTitle.textContent = `${product?.name ?? "Product"} comments`;
   renderReviewList(elements.reviewViewList, reviews);
   elements.reviewView.hidden = false;
   resetPageScroll();
@@ -270,26 +269,28 @@ function renderCatalog(dashboard) {
         node(
           "p",
           "muted",
-          `${product.reviewCount} verified review${product.reviewCount === 1 ? "" : "s"}`,
+          `${product.reviewCount} verified comment${product.reviewCount === 1 ? "" : "s"}`,
         ),
       );
       const actions = node("div", "card-actions product-actions");
       const purchaseLabel = product.belongsToAccountOrganization
         ? "Your merchant"
         : "Buy now";
+      const hasPurchasePermission =
+        product.availableForPurchase ?? product.canPurchase ?? false;
       const buyButton = button(
         purchaseLabel,
         "buy-product",
         { productId: product.productId },
       );
-      if (product.canPurchase) {
+      if (hasPurchasePermission) {
         buyButton.classList.remove("button-secondary");
         buyButton.classList.add("button-primary");
       }
-      buyButton.disabled = !product.canPurchase;
+      buyButton.disabled = !hasPurchasePermission;
       actions.append(
         buyButton,
-        button("Read reviews", "show-product-reviews", {
+        button("Read comments", "show-product-reviews", {
           productId: product.productId,
         }),
       );
@@ -612,9 +613,9 @@ function renderPurchases(dashboard) {
       text.required = true;
       text.rows = 3;
       text.placeholder = "What should other customers know?";
-      const submit = node("button", "button button-primary", "Publish review");
+      const submit = node("button", "button button-primary", "Publish comment");
       submit.type = "submit";
-      reviewForm.append(field("Write a review", rating), field("Your review", text), submit);
+      reviewForm.append(field("Write a comment", rating), field("Your comment", text), submit);
       actions.append(reviewForm);
     }
     if (purchase.canRequestSupport) {
@@ -752,9 +753,13 @@ function renderCases(dashboard) {
       );
     } else {
       const result = node("div", "status-panel success-panel");
+      const evidenceSummary =
+        assignedCase.result?.reviewIntegrity === true
+          ? "The purchase, comment, and rejected support decision match this case."
+          : "The purchase and rejected support decision match this case.";
       result.append(
         node("strong", "", "Evidence checks completed"),
-        node("p", "", "The purchase, review, and support decision match this case."),
+        node("p", "", evidenceSummary),
       );
       card.append(result);
     }
@@ -766,7 +771,7 @@ function renderReviewList(target, reviews) {
   target.replaceChildren();
   if (reviews.length === 0) {
     target.append(
-      node("p", "empty-state", "No customer reviews have been published yet."),
+      node("p", "empty-state", "No customer comments have been published yet."),
     );
     return;
   }
@@ -784,11 +789,6 @@ function renderReviewList(target, reviews) {
     );
     target.append(card);
   });
-}
-
-async function loadPublicReviews() {
-  const payload = await request("/api/public/reviews");
-  renderReviewList(elements.publicReviews, payload.reviews);
 }
 
 function renderActivity(dashboard) {
@@ -829,7 +829,7 @@ function renderDashboard(dashboard) {
   elements.dashboardTitle.textContent = `Good to see you, ${dashboard.account.displayName.split(" ")[0]}.`;
   elements.dashboardSubtitle.textContent = dashboard.account.isAdministrator
     ? "Review organization and special-role applications."
-    : "Browse products by merchant, read verified reviews, and manage purchases from one place.";
+    : "Browse products by merchant, read verified comments, and manage purchases from one place.";
 
   elements.catalogSection.hidden = true;
   elements.foundationSection.hidden = true;
@@ -1020,7 +1020,7 @@ document.addEventListener("submit", async (event) => {
     await perform(
       "/api/actions/publish-review",
       { ...formValues(form), purchaseId: form.dataset.purchaseId },
-      "Review published",
+      "Comment published",
     );
   }
   if (form.dataset.action === "decide-support") {
@@ -1056,7 +1056,7 @@ document.addEventListener("click", async (event) => {
     const completed = await perform(
       "/api/actions/buy-product",
       { productId: target.dataset.productId },
-      "Purchase completed — you can now review it or request a replacement",
+      "Purchase completed — you can now comment on it or request a replacement",
     );
     if (completed) elements.purchasesSection.scrollIntoView({ behavior: "smooth" });
   }
@@ -1117,7 +1117,6 @@ document.addEventListener("click", async (event) => {
 });
 
 try {
-  await loadPublicReviews();
   const session = await request("/api/session");
   if (session.authenticated) {
     renderDashboard(await request("/api/dashboard"));
